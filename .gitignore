@@ -1,0 +1,4 @@
+node_modules/
+uploads/
+alerts.db
+.DS_Store

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Generate and print QR codes for each machine — stick them on machines for instant error reporting">
+    <title>QR Code Generator</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <a href="/" class="nav-back no-print">← Back</a>
+
+        <header class="page-header no-print">
+            <span class="icon">🏷️</span>
+            <h1>Machine QR Codes</h1>
+            <p>Print these and stick them on each machine</p>
+        </header>
+
+        <div style="text-align: center; margin-bottom: 24px;" class="no-print">
+            <button class="btn btn-primary" id="printAllBtn" onclick="window.print()">
+                🖨️ Print All QR Codes
+            </button>
+            <button class="btn btn-ghost" id="addMachineBtn" style="margin-left: 8px;">
+                ➕ Add Machine
+            </button>
+        </div>
+
+        <!-- Add Machine Modal -->
+        <div class="success-overlay" id="addMachineModal">
+            <div class="success-box" style="text-align: left;">
+                <h2 style="margin-bottom: 16px;">Add New Machine</h2>
+                <form id="addMachineForm">
+                    <div class="form-group">
+                        <label class="form-label" for="newMachineName">Machine Name</label>
+                        <input type="text" class="form-input" id="newMachineName" placeholder="e.g. CNC Machine B3"
+                            required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="newMachineLocation">Location</label>
+                        <input type="text" class="form-input" id="newMachineLocation"
+                            placeholder="e.g. Shop Floor - Bay 2" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="newMachineDept">Department</label>
+                        <input type="text" class="form-input" id="newMachineDept" placeholder="e.g. Production"
+                            value="Production">
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="submit" class="btn btn-primary" style="flex:1;">Add Machine</button>
+                        <button type="button" class="btn btn-ghost" id="cancelAddMachine"
+                            style="flex:1;">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- QR Codes Grid -->
+        <div class="qr-grid" id="qrGrid">
+            <div class="empty-state" id="loadingState">
+                <div class="empty-icon">⏳</div>
+                <h3>Loading machines…</h3>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="/js/qrcodes.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Report a machine error — scan the QR code on the machine to get started">
+    <title>Report Machine Error</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body>
+    <div class="container-narrow">
+        <a href="/" class="nav-back">← Back</a>
+
+        <header class="page-header">
+            <span class="icon">📱</span>
+            <h1>Report Machine Error</h1>
+            <p>Describe the error and we'll alert maintenance</p>
+        </header>
+
+        <!-- Machine Info (auto-filled from QR) -->
+        <div class="machine-info-bar" id="machineInfoBar" style="display: none;">
+            <span class="machine-icon">⚙️</span>
+            <div class="machine-details">
+                <h3 id="machineName">—</h3>
+                <p id="machineLocation">—</p>
+            </div>
+        </div>
+
+        <form id="reportForm" class="glass-card" autocomplete="off">
+            <!-- Machine selector (shown only if no QR scan) -->
+            <div class="form-group" id="machineSelectGroup">
+                <label class="form-label" for="machineSelect">Select Machine</label>
+                <select class="form-select" id="machineSelect" required>
+                    <option value="">Choose a machine…</option>
+                </select>
+            </div>
+
+            <!-- Error message -->
+            <div class="form-group">
+                <label class="form-label" for="errorMessage">Error Message (on display)</label>
+                <input type="text" class="form-input" id="errorMessage" placeholder="e.g. Lport bulb not open" required>
+            </div>
+
+            <!-- Description -->
+            <div class="form-group">
+                <label class="form-label" for="description">Additional Details (optional)</label>
+                <textarea class="form-textarea" id="description"
+                    placeholder="Describe what happened, any sounds, smells, or observations…" rows="3"></textarea>
+            </div>
+
+            <!-- Priority -->
+            <div class="form-group">
+                <label class="form-label">Priority</label>
+                <div class="priority-grid">
+                    <div class="priority-option critical">
+                        <input type="radio" name="priority" id="priorityCritical" value="critical">
+                        <label for="priorityCritical">
+                            <span class="dot"></span>
+                            Critical
+                        </label>
+                    </div>
+                    <div class="priority-option high">
+                        <input type="radio" name="priority" id="priorityHigh" value="high">
+                        <label for="priorityHigh">
+                            <span class="dot"></span>
+                            High
+                        </label>
+                    </div>
+                    <div class="priority-option medium">
+                        <input type="radio" name="priority" id="priorityMedium" value="medium" checked>
+                        <label for="priorityMedium">
+                            <span class="dot"></span>
+                            Medium
+                        </label>
+                    </div>
+                    <div class="priority-option low">
+                        <input type="radio" name="priority" id="priorityLow" value="low">
+                        <label for="priorityLow">
+                            <span class="dot"></span>
+                            Low
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Photo Upload -->
+            <div class="form-group">
+                <label class="form-label">Photo of Error (optional)</label>
+                <div class="photo-upload" id="photoUpload">
+                    <input type="file" id="photoInput" accept="image/*" capture="environment">
+                    <div class="upload-icon">📷</div>
+                    <div class="upload-text">Tap to take a photo or choose from gallery</div>
+                </div>
+                <div class="photo-preview" id="photoPreview">
+                    <img id="photoPreviewImg" src="" alt="Preview">
+                </div>
+            </div>
+
+            <!-- Operator Name -->
+            <div class="form-group">
+                <label class="form-label" for="operatorName">Your Name (optional)</label>
+                <input type="text" class="form-input" id="operatorName" placeholder="e.g. Rahul">
+            </div>
+
+            <!-- Submit -->
+            <button type="submit" class="btn btn-primary btn-full" id="submitBtn">
+                <span class="spinner"></span>
+                <span class="btn-text">🚨 Submit Report</span>
+            </button>
+        </form>
+    </div>
+
+    <!-- Success Overlay -->
+    <div class="success-overlay" id="successOverlay">
+        <div class="success-box">
+            <span class="success-icon">✅</span>
+            <h2>Report Submitted!</h2>
+            <p>Maintenance has been alerted.</p>
+            <div class="ticket-number" id="ticketNumber">Ticket #—</div>
+            <button class="btn btn-primary btn-full" id="newReportBtn">Submit Another Report</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="/js/report.js"></script>
+</body>
+
+</html>
