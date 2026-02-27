@@ -4,13 +4,95 @@ document.addEventListener('DOMContentLoaded', () => {
     const addMachineModal = document.getElementById('addMachineModal');
     const cancelAddMachine = document.getElementById('cancelAddMachine');
     const addMachineForm = document.getElementById('addMachineForm');
+    const loginOverlay = document.getElementById('loginOverlay');
+    const mainContent = document.getElementById('mainContent');
+    const loginForm = document.getElementById('loginForm');
+    const loginError = document.getElementById('loginError');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    let authToken = localStorage.getItem('maintenance_token');
+
+    // ─── Auth check ─────────────────────────────────────────────────────────
+    checkAuth();
+
+    async function checkAuth() {
+        if (!authToken) return showLogin();
+
+        try {
+            const res = await fetch('/api/auth/check', {
+                headers: { 'x-auth-token': authToken },
+            });
+            const data = await res.json();
+            if (data.authenticated) {
+                showMain();
+            } else {
+                localStorage.removeItem('maintenance_token');
+                authToken = null;
+                showLogin();
+            }
+        } catch {
+            showLogin();
+        }
+    }
+
+    function showLogin() {
+        loginOverlay.style.display = 'flex';
+        mainContent.style.display = 'none';
+    }
+
+    function showMain() {
+        loginOverlay.style.display = 'none';
+        mainContent.style.display = 'block';
+        loadMachines();
+    }
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pin = document.getElementById('pinInput').value;
+        loginError.style.display = 'none';
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pin }),
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                authToken = data.token;
+                localStorage.setItem('maintenance_token', authToken);
+                showMain();
+            } else {
+                loginError.textContent = '❌ Invalid PIN. Please try again.';
+                loginError.style.display = 'block';
+                document.getElementById('pinInput').value = '';
+                document.getElementById('pinInput').focus();
+            }
+        } catch {
+            loginError.textContent = '❌ Connection error. Try again.';
+            loginError.style.display = 'block';
+        }
+    });
+
+    logoutBtn.addEventListener('click', async () => {
+        try {
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'x-auth-token': authToken },
+            });
+        } catch { }
+        localStorage.removeItem('maintenance_token');
+        authToken = null;
+        showLogin();
+    });
 
     // ─── Load machines and their QR codes ───────────────────────────────────
-    loadMachines();
-
     async function loadMachines() {
         try {
-            const res = await fetch('/api/machines');
+            const res = await fetch('/api/machines', {
+                headers: { 'x-auth-token': authToken },
+            });
             const machines = await res.json();
 
             if (machines.length === 0) {
@@ -27,7 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Fetch QR codes for all machines in parallel
             const qrPromises = machines.map(async (machine) => {
                 try {
-                    const qrRes = await fetch(`/api/machines/${machine.id}/qrcode`);
+                    const qrRes = await fetch(`/api/machines/${machine.id}/qrcode`, {
+                        headers: { 'x-auth-token': authToken },
+                    });
                     const qrData = await qrRes.json();
                     return { machine, qrData };
                 } catch (err) {
@@ -90,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/machines', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
                 body: JSON.stringify({ name, location, department }),
             });
 

@@ -10,57 +10,88 @@
 </head>
 
 <body>
-    <!-- Connection Status Indicator -->
-    <div class="connection-status disconnected" id="connectionStatus">
-        <span class="dot"></span>
-        <span id="connectionText">Connecting…</span>
+    <!-- LOGIN OVERLAY -->
+    <div class="success-overlay visible" id="loginOverlay">
+        <div class="success-box">
+            <span class="success-icon">🔐</span>
+            <h2>Maintenance Login</h2>
+            <p>Enter the maintenance PIN to access the dashboard</p>
+            <form id="loginForm" style="text-align: left;">
+                <div class="form-group">
+                    <input type="password" class="form-input" id="pinInput" placeholder="Enter PIN" maxlength="10"
+                        required autofocus inputmode="numeric"
+                        style="text-align: center; font-size: 1.3rem; letter-spacing: 0.3em;">
+                </div>
+                <div id="loginError"
+                    style="color: var(--accent-red); font-size: 0.85rem; text-align: center; margin-bottom: 12px; display: none;">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">🔓 Login</button>
+            </form>
+            <a href="/"
+                style="display: block; text-align: center; margin-top: 16px; color: var(--text-muted); font-size: 0.8rem; text-decoration: none;">←
+                Back to Home</a>
+        </div>
     </div>
 
-    <div class="container">
-        <a href="/" class="nav-back">← Back</a>
-
-        <header class="page-header">
-            <span class="icon">🔧</span>
-            <h1>Maintenance Dashboard</h1>
-            <p>Live alerts from the shop floor</p>
-        </header>
-
-        <!-- Stats -->
-        <div class="stats-bar" id="statsBar">
-            <div class="glass-card stat-card critical">
-                <div class="stat-value" id="statCritical">0</div>
-                <div class="stat-label">Critical</div>
-            </div>
-            <div class="glass-card stat-card open">
-                <div class="stat-value" id="statOpen">0</div>
-                <div class="stat-label">Open</div>
-            </div>
-            <div class="glass-card stat-card progress">
-                <div class="stat-value" id="statInProgress">0</div>
-                <div class="stat-label">In Progress</div>
-            </div>
-            <div class="glass-card stat-card resolved">
-                <div class="stat-value" id="statResolved">0</div>
-                <div class="stat-label">Resolved</div>
-            </div>
+    <!-- MAIN DASHBOARD (hidden until login) -->
+    <div id="mainContent" style="display: none;">
+        <!-- Connection Status Indicator -->
+        <div class="connection-status disconnected" id="connectionStatus">
+            <span class="dot"></span>
+            <span id="connectionText">Connecting…</span>
         </div>
 
-        <!-- Filter Tabs -->
-        <div class="filter-tabs no-print">
-            <button class="filter-tab active" data-filter="all" id="filterAll">All</button>
-            <button class="filter-tab" data-filter="open" id="filterOpen">🔴 Open</button>
-            <button class="filter-tab" data-filter="in_progress" id="filterInProgress">🟡 In Progress</button>
-            <button class="filter-tab" data-filter="resolved" id="filterResolved">🟢 Resolved</button>
-        </div>
+        <div class="container">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <a href="/" class="nav-back">← Back</a>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-ghost btn-sm" id="notifBtn">🔔 Enable Notifications</button>
+                    <button class="btn btn-ghost btn-sm" id="logoutBtn">🔒 Logout</button>
+                </div>
+            </div>
+            <header class="page-header">
+                <span class="icon">🔧</span>
+                <h1>Maintenance Dashboard</h1>
+                <p>Live alerts from the shop floor</p>
+            </header>
 
-        <!-- Reports List -->
-        <div id="reportsList"></div>
+            <!-- Stats -->
+            <div class="stats-bar" id="statsBar">
+                <div class="glass-card stat-card critical">
+                    <div class="stat-value" id="statCritical">0</div>
+                    <div class="stat-label">Critical</div>
+                </div>
+                <div class="glass-card stat-card open">
+                    <div class="stat-value" id="statOpen">0</div>
+                    <div class="stat-label">Open</div>
+                </div>
+                <div class="glass-card stat-card progress">
+                    <div class="stat-value" id="statInProgress">0</div>
+                    <div class="stat-label">In Progress</div>
+                </div>
+                <div class="glass-card stat-card resolved">
+                    <div class="stat-value" id="statResolved">0</div>
+                    <div class="stat-label">Resolved</div>
+                </div>
+            </div>
 
-        <!-- Empty State -->
-        <div class="empty-state" id="emptyState" style="display: none;">
-            <div class="empty-icon">📋</div>
-            <h3>No reports yet</h3>
-            <p>Reports will appear here in real-time as operators submit them</p>
+            <!-- Filter Tabs -->
+            <div class="filter-tabs no-print">
+                <button class="filter-tab active" data-filter="all" id="filterAll">All</button>
+                <button class="filter-tab" data-filter="open" id="filterOpen">🔴 Open</button>
+                <button class="filter-tab" data-filter="in_progress" id="filterInProgress">🟡 In Progress</button>
+                <button class="filter-tab" data-filter="resolved" id="filterResolved">🟢 Resolved</button>
+            </div>
+
+            <!-- Reports List -->
+            <div id="reportsList"></div>
+
+            <!-- Empty State -->
+            <div class="empty-state" id="emptyState" style="display: none;">
+                <div class="empty-icon">📋</div>
+                <h3>No reports yet</h3>
+                <p>Reports will appear here in real-time as operators submit them</p>
+            </div>
         </div>
     </div>
 

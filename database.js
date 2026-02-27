@@ -30,6 +30,14 @@ db.exec(`
     resolved_at DATETIME,
     FOREIGN KEY (machine_id) REFERENCES machines(id)
   );
+
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint TEXT NOT NULL UNIQUE,
+    keys_p256dh TEXT NOT NULL,
+    keys_auth TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Seed default machines if table is empty
@@ -37,16 +45,44 @@ const machineCount = db.prepare('SELECT COUNT(*) as count FROM machines').get();
 if (machineCount.count === 0) {
   const insertMachine = db.prepare('INSERT INTO machines (name, location, department) VALUES (?, ?, ?)');
   const seedMachines = [
-    ['CNC Machine A1', 'Shop Floor - Bay 1', 'Production'],
-    ['CNC Machine A2', 'Shop Floor - Bay 1', 'Production'],
-    ['Lathe B1', 'Shop Floor - Bay 2', 'Production'],
-    ['Lathe B2', 'Shop Floor - Bay 2', 'Production'],
-    ['Milling Machine C1', 'Shop Floor - Bay 3', 'Production'],
-    ['Press D1', 'Shop Floor - Bay 4', 'Assembly'],
-    ['Welding Station E1', 'Shop Floor - Bay 5', 'Assembly'],
-    ['Conveyor F1', 'Packaging Area', 'Packaging'],
-    ['Inspection Unit G1', 'Quality Lab', 'Quality'],
-    ['Compressor H1', 'Utility Room', 'Utilities'],
+    ['3DCMM Machine 12/18/10', 'Main Plant', 'Quality'],
+    ['Karcher HDS695 Hot water Jet Machine', 'Main Plant', 'Cleaning'],
+    ['Glass Bead Blasting Machine', 'Main Plant', 'Surface Treatment'],
+    ['BALANCING M/C H20B and H4 (Workshop)', 'Workshop', 'Balancing'],
+    ['BALANCING M/C H4/20 BUTL (GTC)', 'GTC', 'Balancing'],
+    ['EOT Crane - Test Plant', 'Test Plant', 'Material Handling'],
+    ['UPS for Turbocharger Workshop', 'Workshop', 'Electrical'],
+    ['UPS for Turbocharger Office', 'Office', 'Electrical'],
+    ['3DCMM Room - Air Conditioning System 8.5TR', 'Main Plant', 'HVAC'],
+    ['ELECTRIC STACKER ST15', 'Main Plant', 'Material Handling'],
+    ['ELECTRIC STACKER ST15SS', 'Main Plant', 'Material Handling'],
+    ['Battery Operated Pallet', 'Main Plant', 'Material Handling'],
+    ['ELECTRIC STACKER ST14', 'Main Plant', 'Material Handling'],
+    ['TC Office - Air Conditioning System', 'Office', 'HVAC'],
+    ['Balancing Machine H4/20 BUTL - Mumbai S/S', 'Mumbai S/S', 'Balancing'],
+    ['Stacker ST15 - 1.0T at 4.8M Ht', 'Main Plant', 'Material Handling'],
+    ['Diesel Generating Set 66/82.5KVA', 'Main Plant', 'Power'],
+    ['SCREW AIR COMPRESSOR - GX11 7.5', 'Main Plant', 'Utilities'],
+    ['Karcher HDS895 Hot Water Jet Machine', 'Main Plant', 'Cleaning'],
+    ['Glass Bead Blasting Machine - Unit 2', 'Main Plant', 'Surface Treatment'],
+    ['Karcher HDS895 Hot Water Jet Machine - Unit 2', 'Main Plant', 'Cleaning'],
+    ['Balancing Machine H4/20 BUTL - Vizag S/S', 'Vizag S/S', 'Balancing'],
+    ['SCREW AIR COMPRESSOR - GX11 7.5 (Unit 2)', 'Main Plant', 'Utilities'],
+    ['Diesel Generating Set 66/82.5KVA (Unit 2)', 'Main Plant', 'Power'],
+    ['Manual Operated Hand Pallet', 'Main Plant', 'Material Handling'],
+    ['Karcher HDS895 Hot Water Jet Machine - Unit 3', 'Main Plant', 'Cleaning'],
+    ['Balancing M/C H4/20 BUTL - Faridabad S/S', 'Faridabad S/S', 'Balancing'],
+    ['Glass Bead Blasting Machine - Unit 3', 'Main Plant', 'Surface Treatment'],
+    ['SCREW AIR COMPRESSOR - GX11 7.5 (Unit 3)', 'Main Plant', 'Utilities'],
+    ['Stacker ST15 - 1.0T at 4.8M Ht (Unit 2)', 'Main Plant', 'Material Handling'],
+    ['EOT CRANE 5/2 T - Delhi S/S', 'Delhi S/S', 'Material Handling'],
+    ['Balancing Machine H4/20 BUTL - Chennai S/S', 'Chennai S/S', 'Balancing'],
+    ['Diesel Generating Set 125 KVA', 'Main Plant', 'Power'],
+    ['SCREW AIR COMPRESSOR - GX11 7.5 (Unit 4)', 'Main Plant', 'Utilities'],
+    ['Karcher HDS895 Hot Water Jet Machine - Unit 4', 'Main Plant', 'Cleaning'],
+    ['Glass Bead Blasting Machine - Unit 4', 'Main Plant', 'Surface Treatment'],
+    ['Battery Operated Pallet (Unit 2)', 'Main Plant', 'Material Handling'],
+    ['Balancing Machine H4/20 BUTL - Colombo S/S', 'Colombo S/S', 'Balancing'],
   ];
 
   const insertMany = db.transaction((machines) => {
@@ -55,7 +91,7 @@ if (machineCount.count === 0) {
     }
   });
   insertMany(seedMachines);
-  console.log('✅ Seeded 10 default machines');
+  console.log('✅ Seeded 38 equipment items');
 }
 
 // Prepared statements for queries
@@ -117,6 +153,14 @@ const queries = {
       SUM(CASE WHEN priority = 'critical' AND status != 'resolved' THEN 1 ELSE 0 END) as critical_open
     FROM reports
   `),
+
+  // Push subscriptions
+  saveSubscription: db.prepare(`
+    INSERT OR REPLACE INTO push_subscriptions (endpoint, keys_p256dh, keys_auth)
+    VALUES (?, ?, ?)
+  `),
+  getAllSubscriptions: db.prepare('SELECT * FROM push_subscriptions'),
+  deleteSubscription: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
 };
 
 module.exports = { db, queries };

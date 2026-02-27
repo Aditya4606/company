@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (machineId) {
         // QR scan — fetch machine info and show the info bar
         try {
-            const res = await fetch(`/api/machines/${machineId}`);
+            const res = await fetch(`/api/machines/${machineId}/info`);
             if (res.ok) {
                 const machine = await res.json();
                 machineName.textContent = machine.name;
@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         machineSelectGroup.style.display = 'block';
         machineInfoBar.style.display = 'none';
         try {
-            const res = await fetch('/api/machines');
+            const res = await fetch('/api/machines/list');
             const machines = await res.json();
             machines.forEach(m => {
                 const option = document.createElement('option');

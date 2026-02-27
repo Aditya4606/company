@@ -4,19 +4,210 @@ document.addEventListener('DOMContentLoaded', () => {
     const connectionStatus = document.getElementById('connectionStatus');
     const connectionText = document.getElementById('connectionText');
     const alertSound = document.getElementById('alertSound');
+    const loginOverlay = document.getElementById('loginOverlay');
+    const mainContent = document.getElementById('mainContent');
+    const loginForm = document.getElementById('loginForm');
+    const loginError = document.getElementById('loginError');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const notifBtn = document.getElementById('notifBtn');
 
+    let authToken = localStorage.getItem('maintenance_token');
     let allReports = [];
     let currentFilter = 'all';
     let isFirstLoad = true;
 
-    // ─── Load initial data ──────────────────────────────────────────────────
-    loadReports();
-    loadStats();
+    // ─── Auth check ─────────────────────────────────────────────────────────
+    checkAuth();
+
+    async function checkAuth() {
+        if (!authToken) return showLogin();
+
+        try {
+            const res = await fetch('/api/auth/check', {
+                headers: { 'x-auth-token': authToken },
+            });
+            const data = await res.json();
+            if (data.authenticated) {
+                showDashboard();
+            } else {
+                localStorage.removeItem('maintenance_token');
+                authToken = null;
+                showLogin();
+            }
+        } catch {
+            showLogin();
+        }
+    }
+
+    function showLogin() {
+        loginOverlay.style.display = 'flex';
+        mainContent.style.display = 'none';
+    }
+
+    function showDashboard() {
+        loginOverlay.style.display = 'none';
+        mainContent.style.display = 'block';
+        loadReports();
+        loadStats();
+        connectSSE();
+        updateNotifButton();
+    }
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pin = document.getElementById('pinInput').value;
+        loginError.style.display = 'none';
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pin }),
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                authToken = data.token;
+                localStorage.setItem('maintenance_token', authToken);
+                showDashboard();
+            } else {
+                loginError.textContent = '❌ Invalid PIN. Please try again.';
+                loginError.style.display = 'block';
+                document.getElementById('pinInput').value = '';
+                document.getElementById('pinInput').focus();
+            }
+        } catch {
+            loginError.textContent = '❌ Connection error. Try again.';
+            loginError.style.display = 'block';
+        }
+    });
+
+    logoutBtn.addEventListener('click', async () => {
+        try {
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'x-auth-token': authToken },
+            });
+        } catch { }
+        localStorage.removeItem('maintenance_token');
+        authToken = null;
+        showLogin();
+    });
+
+    // ─── Push Notifications ─────────────────────────────────────────────────
+    async function updateNotifButton() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            notifBtn.textContent = '🔕 Not Supported';
+            notifBtn.disabled = true;
+            return;
+        }
+
+        const permission = Notification.permission;
+        if (permission === 'granted') {
+            const reg = await navigator.serviceWorker.getRegistration();
+            const sub = reg ? await reg.pushManager.getSubscription() : null;
+            if (sub) {
+                notifBtn.textContent = '🔔 Notifications On';
+                notifBtn.classList.add('active-notif');
+            } else {
+                notifBtn.textContent = '🔔 Enable Notifications';
+                notifBtn.classList.remove('active-notif');
+            }
+        } else if (permission === 'denied') {
+            notifBtn.textContent = '🔕 Blocked';
+            notifBtn.disabled = true;
+        } else {
+            notifBtn.textContent = '🔔 Enable Notifications';
+        }
+    }
+
+    notifBtn.addEventListener('click', async () => {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            showToast('Push notifications not supported on this browser', 'error');
+            return;
+        }
+
+        try {
+            // Check if already subscribed
+            const reg = await navigator.serviceWorker.getRegistration();
+            if (reg) {
+                const existingSub = await reg.pushManager.getSubscription();
+                if (existingSub) {
+                    // Unsubscribe
+                    await existingSub.unsubscribe();
+                    await fetch('/api/push/unsubscribe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ endpoint: existingSub.endpoint }),
+                    });
+                    showToast('🔕 Notifications disabled', 'success');
+                    updateNotifButton();
+                    return;
+                }
+            }
+
+            // Request permission
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+                showToast('Notification permission denied', 'error');
+                updateNotifButton();
+                return;
+            }
+
+            // Register service worker
+            const registration = await navigator.serviceWorker.register('/sw.js');
+            await navigator.serviceWorker.ready;
+
+            // Get VAPID public key
+            const vapidRes = await fetch('/api/push/vapid-key');
+            const { publicKey } = await vapidRes.json();
+
+            // Subscribe to push
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(publicKey),
+            });
+
+            // Send subscription to server
+            const subJson = subscription.toJSON();
+            await fetch('/api/push/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
+                body: JSON.stringify({
+                    endpoint: subJson.endpoint,
+                    keys: subJson.keys,
+                }),
+            });
+
+            showToast('🔔 Notifications enabled! You\'ll be alerted even when this page is closed.', 'success');
+            updateNotifButton();
+        } catch (err) {
+            console.error('Push subscription error:', err);
+            showToast('Failed to enable notifications', 'error');
+        }
+    });
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+    }
+
+    // ─── Helper: auth headers ──────────────────────────────────────────────
+    function authHeaders(extra = {}) {
+        return { 'x-auth-token': authToken, ...extra };
+    }
 
     // ─── SSE connection ─────────────────────────────────────────────────────
     let eventSource;
 
     function connectSSE() {
+        if (eventSource) eventSource.close();
         eventSource = new EventSource('/api/events');
 
         eventSource.onopen = () => {
@@ -51,8 +242,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    connectSSE();
-
     // ─── Filter tabs ────────────────────────────────────────────────────────
     document.querySelectorAll('.filter-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -66,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ─── Load reports ───────────────────────────────────────────────────────
     async function loadReports() {
         try {
-            const res = await fetch('/api/reports');
+            const res = await fetch('/api/reports', { headers: authHeaders() });
             allReports = await res.json();
             isFirstLoad = false;
             renderReports();
@@ -78,15 +267,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // ─── Load stats ─────────────────────────────────────────────────────────
     async function loadStats() {
         try {
-            const res = await fetch('/api/stats');
+            const res = await fetch('/api/stats', { headers: authHeaders() });
             const stats = await res.json();
             document.getElementById('statCritical').textContent = stats.critical_open || 0;
             document.getElementById('statOpen').textContent = stats.open_count || 0;
             document.getElementById('statInProgress').textContent = stats.in_progress_count || 0;
             document.getElementById('statResolved').textContent = stats.resolved_count || 0;
-        } catch (err) {
-            // Silent fail
-        }
+        } catch (err) { }
     }
 
     // ─── Render reports ─────────────────────────────────────────────────────
@@ -104,12 +291,9 @@ document.addEventListener('DOMContentLoaded', () => {
         emptyState.style.display = 'none';
         reportsList.innerHTML = filtered.map((r, i) => createReportCard(r, i === 0 && !isFirstLoad)).join('');
 
-        // Attach event listeners for action buttons
         reportsList.querySelectorAll('[data-action]').forEach(btn => {
             btn.addEventListener('click', () => {
-                const reportId = btn.dataset.reportId;
-                const action = btn.dataset.action;
-                updateReportStatus(reportId, action);
+                updateReportStatus(btn.dataset.reportId, btn.dataset.action);
             });
         });
     }
@@ -169,7 +353,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch(`/api/reports/${reportId}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     status: newStatus,
                     resolved_by: resolverName || 'Maintenance',
@@ -189,23 +373,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // ─── Play alert sound ──────────────────────────────────────────────────
     function playAlertSound() {
         try {
-            // Create a simple beep using Web Audio API
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = ctx.createOscillator();
-            const gainNode = ctx.createGain();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            osc.type = 'sine';
+            gain.gain.value = 0.3;
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+            osc.stop(ctx.currentTime + 0.5);
 
-            oscillator.connect(gainNode);
-            gainNode.connect(ctx.destination);
-
-            oscillator.frequency.value = 880;
-            oscillator.type = 'sine';
-            gainNode.gain.value = 0.3;
-
-            oscillator.start();
-            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-            oscillator.stop(ctx.currentTime + 0.5);
-
-            // Second beep
             setTimeout(() => {
                 const osc2 = ctx.createOscillator();
                 const gain2 = ctx.createGain();
@@ -219,7 +398,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 osc2.stop(ctx.currentTime + 0.5);
             }, 200);
         } catch (e) {
-            // Fallback: try playing the audio element
             alertSound.play().catch(() => { });
         }
     }
@@ -229,15 +407,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
         const now = new Date();
         const diff = (now - d) / 1000;
-
         if (diff < 60) return 'Just now';
         if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
         if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
         return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     }
 
-    function formatStatus(status) {
-        return status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
+    function formatStatus(s) {
+        return s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
 
     function escapeHtml(str) {
