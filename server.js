@@ -108,6 +108,17 @@ app.post('/api/auth/logout', (req, res) => {
     res.json({ success: true });
 });
 
+// ─── HEALTH CHECK API (Keeps Server & DB Awake) ──────────────────────────────
+app.get('/api/health', async (req, res) => {
+    try {
+        await pool.query('SELECT 1');
+        res.status(200).send('OK');
+    } catch (e) {
+        console.error('Health check failed:', e);
+        res.status(500).send('Error');
+    }
+});
+
 
 
 // ─── SSE (Server-Sent Events) ───────────────────────────────────────────────
