@@ -14,6 +14,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelAssign = document.getElementById('cancelAssign');
     const assignReportInfo = document.getElementById('assignReportInfo');
 
+    // Monthly stats elements
+    const monthlyReportBtn = document.getElementById('monthlyReportBtn');
+    const monthlyModal = document.getElementById('monthlyModal');
+    const closeMonthlyModal = document.getElementById('closeMonthlyModal');
+    const monthSelector = document.getElementById('monthSelector');
+    const fetchMonthlyBtn = document.getElementById('fetchMonthlyBtn');
+    const monthlyStatsContainer = document.getElementById('monthlyStatsContainer');
+
+    // Manage Machines elements
+    const manageMachinesBtn = document.getElementById('manageMachinesBtn');
+    const manageMachinesModal = document.getElementById('manageMachinesModal');
+    const closeManageMachinesModal = document.getElementById('closeManageMachinesModal');
+    const manageMachinesList = document.getElementById('manageMachinesList');
+
     let authToken = localStorage.getItem('maintenance_token');
     let allReports = [];
     let staffList = [];
@@ -37,16 +51,26 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/auth/check', { headers: { 'x-auth-token': authToken } });
             const data = await res.json();
-            if (data.authenticated) showDashboard();
+            if (data.authenticated) {
+                localStorage.setItem('user_role', data.role);
+                showDashboard(data.role);
+            }
             else { localStorage.removeItem('maintenance_token'); authToken = null; showLogin(); }
         } catch { showLogin(); }
     }
 
     function showLogin() { loginOverlay.style.display = 'flex'; mainContent.style.display = 'none'; }
 
-    function showDashboard() {
+    function showDashboard(role = localStorage.getItem('user_role')) {
         loginOverlay.style.display = 'none';
         mainContent.style.display = 'block';
+        if (manageMachinesBtn) {
+            if (role === 'admin') {
+                manageMachinesBtn.style.display = 'inline-block';
+            } else {
+                manageMachinesBtn.style.display = 'none';
+            }
+        }
         loadStaff();
         loadReports();
         loadStats();
@@ -68,7 +92,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 authToken = data.token;
                 localStorage.setItem('maintenance_token', authToken);
-                showDashboard();
+                localStorage.setItem('user_role', data.role);
+                showDashboard(data.role);
             } else {
                 loginError.textContent = '❌ Invalid PIN. Please try again.';
                 loginError.style.display = 'block';
@@ -84,9 +109,129 @@ document.addEventListener('DOMContentLoaded', () => {
     logoutBtn.addEventListener('click', async () => {
         try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'x-auth-token': authToken } }); } catch { }
         localStorage.removeItem('maintenance_token');
+        localStorage.removeItem('user_role');
         authToken = null;
         showLogin();
     });
+
+    // ─── Monthly Reports ──────────────────────────────────────────────────
+    if (monthlyReportBtn) {
+        monthlyReportBtn.addEventListener('click', () => {
+            monthlyModal.classList.add('visible');
+            const now = new Date();
+            // Format YYYY-MM
+            monthSelector.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            loadMonthlyStats();
+        });
+    }
+
+    if (closeMonthlyModal) closeMonthlyModal.addEventListener('click', () => monthlyModal.classList.remove('visible'));
+    if (fetchMonthlyBtn) fetchMonthlyBtn.addEventListener('click', loadMonthlyStats);
+
+    async function loadMonthlyStats() {
+        if (!monthSelector.value) return;
+        const [year, month] = monthSelector.value.split('-');
+        monthlyStatsContainer.innerHTML = '<div style="text-align:center; padding: 20px;">Loading...</div>';
+
+        try {
+            const res = await fetch(`/api/stats/monthly?year=${year}&month=${month}`, { headers: authHeaders() });
+            const data = await res.json();
+
+            if (!data.data || data.data.length === 0) {
+                monthlyStatsContainer.innerHTML = `<div class="empty-state"><p>No reports found for ${month}/${year}</p></div>`;
+                return;
+            }
+
+            let html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+            data.data.forEach(stat => {
+                html += `
+                    <div class="glass-card" style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="font-weight: 500; font-size: 0.95rem;">${escapeHtml(stat.machine_name)}</div>
+                        <div style="display: flex; gap: 12px; font-size: 0.85rem; text-align: right;">
+                            <div>Total:<br><strong>${stat.total_reports}</strong></div>
+                            <div style="color: var(--accent-green);">Resolved:<br><strong>${stat.resolved_reports}</strong></div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            monthlyStatsContainer.innerHTML = html;
+        } catch {
+            monthlyStatsContainer.innerHTML = `<div class="empty-state" style="color:var(--accent-red)"><p>Failed to load data</p></div>`;
+        }
+    }
+
+    // ─── Manage Machines ────────────────────────────────────────────────────
+    if (manageMachinesBtn) {
+        manageMachinesBtn.addEventListener('click', () => {
+            manageMachinesModal.classList.add('visible');
+            loadManageMachinesList();
+        });
+    }
+
+    if (closeManageMachinesModal) {
+        closeManageMachinesModal.addEventListener('click', () => {
+            manageMachinesModal.classList.remove('visible');
+        });
+    }
+
+    async function loadManageMachinesList() {
+        manageMachinesList.innerHTML = '<div style="text-align:center; padding: 20px;">Loading machines...</div>';
+        try {
+            const res = await fetch('/api/machines', { headers: authHeaders() });
+            const machines = await res.json();
+
+            if (machines.length === 0) {
+                manageMachinesList.innerHTML = `<div class="empty-state"><p>No machines found</p></div>`;
+                return;
+            }
+
+            let html = '';
+            machines.forEach(machine => {
+                html += `
+                    <div class="glass-card" style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: 500; font-size: 0.95rem;">${escapeHtml(machine.name)}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">📍 ${escapeHtml(machine.location)} · ${escapeHtml(machine.department)}</div>
+                        </div>
+                        <button class="btn-delete-machine" data-id="${machine.id}" data-name="${escapeHtml(machine.name)}" 
+                                style="background: none; border: none; color: var(--accent-red); cursor: pointer; font-size: 1.2rem; padding: 4px;">
+                            🗑️
+                        </button>
+                    </div>
+                `;
+            });
+            manageMachinesList.innerHTML = html;
+
+            manageMachinesList.querySelectorAll('.btn-delete-machine').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    const name = e.currentTarget.getAttribute('data-name');
+                    if (confirm(`Are you sure you want to delete machine "${name}"?\nAll associated reports will also be deleted. This cannot be undone.`)) {
+                        try {
+                            const delRes = await fetch(`/api/machines/${id}`, {
+                                method: 'DELETE',
+                                headers: authHeaders()
+                            });
+                            if (delRes.ok) {
+                                showToast(`🗑️ ${name} deleted`, 'success');
+                                loadManageMachinesList();
+                                // Reload reports and stats since deleting a machine deletes its reports
+                                loadReports();
+                                loadStats();
+                            } else {
+                                showToast('Failed to delete machine', 'error');
+                            }
+                        } catch {
+                            showToast('Network error', 'error');
+                        }
+                    }
+                });
+            });
+        } catch {
+            manageMachinesList.innerHTML = `<div class="empty-state" style="color:var(--accent-red)"><p>Failed to load machines</p></div>`;
+        }
+    }
 
     function authHeaders(extra = {}) { return { 'x-auth-token': authToken, ...extra }; }
 
@@ -243,6 +388,13 @@ document.addEventListener('DOMContentLoaded', () => {
             loadStats();
         });
 
+        eventSource.addEventListener('report_deleted', (e) => {
+            const deleted = JSON.parse(e.data);
+            allReports = allReports.filter(r => r.id !== deleted.id);
+            renderReports();
+            loadStats();
+        });
+
         eventSource.onerror = () => {
             connectionStatus.className = 'connection-status disconnected';
             connectionText.textContent = 'Reconnecting…';
@@ -353,6 +505,9 @@ document.addEventListener('DOMContentLoaded', () => {
         reportsList.querySelectorAll('[data-resolve]').forEach(btn => {
             btn.addEventListener('click', () => updateReportStatus(btn.dataset.resolve, 'resolved'));
         });
+        reportsList.querySelectorAll('[data-delete-report]').forEach(btn => {
+            btn.addEventListener('click', () => deleteReport(btn.dataset.deleteReport));
+        });
     }
 
     function createReportCard(report, isNew) {
@@ -378,6 +533,11 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (report.status === 'in_progress') {
             actions = `<button class="btn btn-warning btn-sm" data-assign="${report.id}" style="margin-right:4px;">👷 Reassign</button>
                  <button class="btn btn-success btn-sm" data-resolve="${report.id}">✅ Resolved</button>`;
+        }
+
+        const userRole = localStorage.getItem('user_role');
+        if (userRole === 'admin') {
+            actions += `<button class="btn btn-ghost btn-sm" data-delete-report="${report.id}" style="color: var(--accent-red); margin-left: 4px;" title="Delete Report">🗑️</button>`;
         }
 
         let resolvedInfo = '';
@@ -424,6 +584,22 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch { showToast('Network error', 'error'); }
     }
 
+    async function deleteReport(reportId) {
+        if (!confirm(`Are you sure you want to delete report #${reportId}? This cannot be undone.`)) return;
+        try {
+            const res = await fetch(`/api/reports/${reportId}`, {
+                method: 'DELETE',
+                headers: authHeaders(),
+            });
+            if (res.ok) {
+                showToast(`Report #${reportId} deleted 🗑️`, 'success');
+                // The SSE event 'report_deleted' will remove it from the UI automatically, or we can reload
+            } else {
+                showToast('Failed to delete report', 'error');
+            }
+        } catch { showToast('Network error', 'error'); }
+    }
+
     // ─── Audio ──────────────────────────────────────────────────────────────
     function playAlertSound() {
         try {
@@ -443,9 +619,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
         const diff = (new Date() - d) / 1000;
         if (diff < 60) return 'Just now';
-        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-        return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+        // Return full date and time details instead of just "Xh ago" or "Xm ago" for better visibility requested by user
+        return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
 
     function formatStatus(s) { return s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }

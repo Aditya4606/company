@@ -20,7 +20,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/auth/check', { headers: { 'x-auth-token': authToken } });
             const data = await res.json();
-            if (data.authenticated) showMain();
+            if (data.authenticated) {
+                localStorage.setItem('user_role', data.role);
+                showMain();
+            }
             else { localStorage.removeItem('maintenance_token'); authToken = null; showLogin(); }
         } catch { showLogin(); }
     }
@@ -47,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 authToken = data.token;
                 localStorage.setItem('maintenance_token', authToken);
+                localStorage.setItem('user_role', data.role);
                 showMain();
             } else {
                 loginError.textContent = '❌ Invalid PIN.';
@@ -63,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
     logoutBtn.addEventListener('click', async () => {
         try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'x-auth-token': authToken } }); } catch { }
         localStorage.removeItem('maintenance_token');
+        localStorage.removeItem('user_role');
         authToken = null;
         showLogin();
     });
@@ -87,6 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const results = await Promise.all(qrPromises);
+            const userRole = localStorage.getItem('user_role');
 
             qrGrid.innerHTML = results.map(({ machine, qrData }) => {
                 const qrSvg = qrData?.qr_svg || '<div style="padding:40px; color:var(--text-muted);">QR Error</div>';
@@ -95,10 +101,36 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="qr-image">${qrSvg}</div>
             <div class="machine-name">${escapeHtml(machine.name)}</div>
             <div class="machine-loc">📍 ${escapeHtml(machine.location)} · ${escapeHtml(machine.department)}</div>
-            <div style="margin-top: 8px;"><span style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">ID: ${machine.id}</span></div>
+            <div style="margin-top: 8px; display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">ID: ${machine.id}</span>
+              ${userRole === 'admin' ? `<button class="btn-delete-machine no-print" data-id="${machine.id}" data-name="${escapeHtml(machine.name)}" style="background: none; border: none; color: var(--accent-red); cursor: pointer; font-size: 0.8rem;">🗑️ Delete</button>` : ''}
+            </div>
           </div>
         `;
             }).join('');
+
+            document.querySelectorAll('.btn-delete-machine').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.target.getAttribute('data-id');
+                    const name = e.target.getAttribute('data-name');
+                    if (confirm(`Are you sure you want to delete machine "${name}"?\nAll associated reports will also be deleted. This cannot be undone.`)) {
+                        try {
+                            const res = await fetch(`/api/machines/${id}`, {
+                                method: 'DELETE',
+                                headers: { 'x-auth-token': authToken }
+                            });
+                            if (res.ok) {
+                                showToast(`🗑️ ${name} deleted`, 'success');
+                                loadMachines();
+                            } else {
+                                showToast('Failed to delete machine', 'error');
+                            }
+                        } catch {
+                            showToast('Network error', 'error');
+                        }
+                    }
+                });
+            });
         } catch {
             qrGrid.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><h3>Failed to load</h3></div>';
         }

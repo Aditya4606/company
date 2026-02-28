@@ -79,6 +79,7 @@ function requireAuth(req, res, next) {
     if (!token || !activeSessions.has(token)) {
         return res.status(401).json({ error: 'Unauthorized — maintenance PIN required' });
     }
+    req.sessionContext = activeSessions.get(token);
     cleanExpiredSessions();
     next();
 }
@@ -86,10 +87,12 @@ function requireAuth(req, res, next) {
 app.post('/api/auth/login', (req, res) => {
     const { pin } = req.body;
     if (pin === MAINTENANCE_PIN) {
+        // Grant everyone with the maintenance PIN the 'admin' role so they can delete machines
+        const role = 'admin';
         const token = generateToken();
-        activeSessions.set(token, { createdAt: Date.now() });
-        console.log(`🔐 Maintenance login successful (${activeSessions.size} active sessions)`);
-        return res.json({ success: true, token });
+        activeSessions.set(token, { createdAt: Date.now(), role });
+        console.log(`🔐 Login successful as ${role} (${activeSessions.size} active sessions)`);
+        return res.json({ success: true, token, role });
     }
     res.status(401).json({ error: 'Invalid PIN' });
 });
@@ -97,7 +100,8 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/check', (req, res) => {
     const token = req.headers['x-auth-token'] || req.query.token;
     if (token && activeSessions.has(token)) {
-        return res.json({ authenticated: true });
+        const session = activeSessions.get(token);
+        return res.json({ authenticated: true, role: session.role });
     }
     res.json({ authenticated: false });
 });
@@ -247,6 +251,19 @@ app.post('/api/machines', requireAuth, async (req, res) => {
         const machine = await queries.addMachine(name, location, department || 'General');
         res.status(201).json(machine);
     } catch (e) { res.status(500).json({ error: 'DB Error' }); }
+});
+
+app.delete('/api/machines/:id', requireAuth, async (req, res) => {
+    try {
+        if (req.sessionContext?.role !== 'admin') {
+            return res.status(403).json({ error: 'Forbidden — Admin only' });
+        }
+        const machine = await queries.getMachineById(req.params.id);
+        if (!machine) return res.status(404).json({ error: 'Machine not found' });
+        await queries.deleteMachine(req.params.id);
+        console.log(`🏭 Machine deleted: ${machine.name}`);
+        res.json({ success: true });
+    } catch (e) { console.error('Error deleting machine:', e); res.status(500).json({ error: 'DB Error' }); }
 });
 
 // ─── QR CODE API ─────────────────────────────────────────────────────────────
@@ -412,12 +429,38 @@ app.patch('/api/reports/:id', requireAuth, async (req, res) => {
     } catch (e) { res.status(500).json({ error: 'DB Error' }); }
 });
 
+app.delete('/api/reports/:id', requireAuth, async (req, res) => {
+    try {
+        if (req.sessionContext?.role !== 'admin') {
+            return res.status(403).json({ error: 'Forbidden — Admin only' });
+        }
+        const existing = await queries.getReportById(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'Report not found' });
+
+        await queries.deleteReport(req.params.id);
+
+        broadcastEvent('report_deleted', { id: existing.id });
+        console.log(`📋 Report #${existing.id} deleted`);
+
+        res.json({ success: true });
+    } catch (e) { console.error('Error deleting report:', e); res.status(500).json({ error: 'DB Error' }); }
+});
+
 // ─── STATS API ───────────────────────────────────────────────────────────────
 app.get('/api/stats', requireAuth, async (req, res) => {
     try {
         const stats = await queries.getStats();
         res.json(stats);
     } catch (e) { res.status(500).json({ error: 'DB Error' }); }
+});
+
+app.get('/api/stats/monthly', requireAuth, async (req, res) => {
+    try {
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+        const month = parseInt(req.query.month) || (new Date().getMonth() + 1);
+        const stats = await queries.getMonthlyStats(year, month);
+        res.json({ year, month, data: stats });
+    } catch (e) { console.error('Error fetching monthly stats:', e); res.status(500).json({ error: 'DB Error' }); }
 });
 
 // ─── START SERVER ────────────────────────────────────────────────────────────

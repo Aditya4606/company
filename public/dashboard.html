@@ -63,7 +63,59 @@
         <div class="container">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <a href="/" class="nav-back">← Back</a>
-                <button class="btn btn-ghost btn-sm" id="logoutBtn">🔒 Logout</button>
+                <div>
+                    <button class="btn btn-ghost btn-sm" id="manageMachinesBtn" style="margin-right: 8px;">⚙️ Manage
+                        Machines</button>
+                    <button class="btn btn-primary btn-sm" id="monthlyReportBtn" style="margin-right: 8px;">📊 Monthly
+                        Report</button>
+                    <button class="btn btn-ghost btn-sm" id="logoutBtn">🔒 Logout</button>
+                </div>
+            </div>
+
+            <!-- MANAGE MACHINES MODAL -->
+            <div class="success-overlay" id="manageMachinesModal">
+                <div class="success-box" style="text-align: left; max-width: 600px; width: 90%;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h2 style="margin: 0;">⚙️ Manage Machines</h2>
+                        <button class="btn btn-ghost btn-sm" id="closeManageMachinesModal"
+                            style="padding: 4px 8px;">✕</button>
+                    </div>
+
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
+                        Delete a machine to remove it from the system and the operator dropdown list. <strong>Warning:
+                            This also deletes all associated reports!</strong>
+                    </p>
+
+                    <div id="manageMachinesList"
+                        style="max-height: 350px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                        <div class="empty-state">
+                            <p>Loading machines...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MONTHLY REPORT MODAL -->
+            <div class="success-overlay" id="monthlyModal">
+                <div class="success-box" style="text-align: left; max-width: 500px; width: 90%;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h2 style="margin: 0;">📊 Monthly Report</h2>
+                        <button class="btn btn-ghost btn-sm" id="closeMonthlyModal" style="padding: 4px 8px;">✕</button>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                        <input type="month" id="monthSelector" class="form-input" style="flex: 1;">
+                        <button class="btn btn-primary" id="fetchMonthlyBtn">View</button>
+                    </div>
+
+                    <div id="monthlyStatsContainer" style="max-height: 300px; overflow-y: auto;">
+                        <div class="empty-state">
+                            <p>Select a month to view stats</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <header class="page-header">

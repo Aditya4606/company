@@ -49,54 +49,6 @@ async function initDB() {
     );
   `);
 
-  const { rowCount } = await pool.query('SELECT 1 FROM machines LIMIT 1');
-  if (rowCount === 0) {
-    const seedMachines = [
-      ['3DCMM Machine 12/18/10', 'Main Plant', 'Quality'],
-      ['Karcher HDS695 Hot water Jet Machine', 'Main Plant', 'Cleaning'],
-      ['Glass Bead Blasting Machine', 'Main Plant', 'Surface Treatment'],
-      ['BALANCING M/C H20B and H4 (Workshop)', 'Workshop', 'Balancing'],
-      ['BALANCING M/C H4/20 BUTL (GTC)', 'GTC', 'Balancing'],
-      ['EOT Crane - Test Plant', 'Test Plant', 'Material Handling'],
-      ['UPS for Turbocharger Workshop', 'Workshop', 'Electrical'],
-      ['UPS for Turbocharger Office', 'Office', 'Electrical'],
-      ['3DCMM Room - Air Conditioning System 8.5TR', 'Main Plant', 'HVAC'],
-      ['ELECTRIC STACKER ST15', 'Main Plant', 'Material Handling'],
-      ['ELECTRIC STACKER ST15SS', 'Main Plant', 'Material Handling'],
-      ['Battery Operated Pallet', 'Main Plant', 'Material Handling'],
-      ['ELECTRIC STACKER ST14', 'Main Plant', 'Material Handling'],
-      ['TC Office - Air Conditioning System', 'Office', 'HVAC'],
-      ['Balancing Machine H4/20 BUTL - Mumbai S/S', 'Mumbai S/S', 'Balancing'],
-      ['Stacker ST15 - 1.0T at 4.8M Ht', 'Main Plant', 'Material Handling'],
-      ['Diesel Generating Set 66/82.5KVA', 'Main Plant', 'Power'],
-      ['SCREW AIR COMPRESSOR - GX11 7.5', 'Main Plant', 'Utilities'],
-      ['Karcher HDS895 Hot Water Jet Machine', 'Main Plant', 'Cleaning'],
-      ['Glass Bead Blasting Machine - Unit 2', 'Main Plant', 'Surface Treatment'],
-      ['Karcher HDS895 Hot Water Jet Machine - Unit 2', 'Main Plant', 'Cleaning'],
-      ['Balancing Machine H4/20 BUTL - Vizag S/S', 'Vizag S/S', 'Balancing'],
-      ['SCREW AIR COMPRESSOR - GX11 7.5 (Unit 2)', 'Main Plant', 'Utilities'],
-      ['Diesel Generating Set 66/82.5KVA (Unit 2)', 'Main Plant', 'Power'],
-      ['Manual Operated Hand Pallet', 'Main Plant', 'Material Handling'],
-      ['Karcher HDS895 Hot Water Jet Machine - Unit 3', 'Main Plant', 'Cleaning'],
-      ['Balancing M/C H4/20 BUTL - Faridabad S/S', 'Faridabad S/S', 'Balancing'],
-      ['Glass Bead Blasting Machine - Unit 3', 'Main Plant', 'Surface Treatment'],
-      ['SCREW AIR COMPRESSOR - GX11 7.5 (Unit 3)', 'Main Plant', 'Utilities'],
-      ['Stacker ST15 - 1.0T at 4.8M Ht (Unit 2)', 'Main Plant', 'Material Handling'],
-      ['EOT CRANE 5/2 T - Delhi S/S', 'Delhi S/S', 'Material Handling'],
-      ['Balancing Machine H4/20 BUTL - Chennai S/S', 'Chennai S/S', 'Balancing'],
-      ['Diesel Generating Set 125 KVA', 'Main Plant', 'Power'],
-      ['SCREW AIR COMPRESSOR - GX11 7.5 (Unit 4)', 'Main Plant', 'Utilities'],
-      ['Karcher HDS895 Hot Water Jet Machine - Unit 4', 'Main Plant', 'Cleaning'],
-      ['Glass Bead Blasting Machine - Unit 4', 'Main Plant', 'Surface Treatment'],
-      ['Battery Operated Pallet (Unit 2)', 'Main Plant', 'Material Handling'],
-      ['Balancing Machine H4/20 BUTL - Colombo S/S', 'Colombo S/S', 'Balancing']
-    ];
-
-    for (const m of seedMachines) {
-      await pool.query('INSERT INTO machines (name, location, department) VALUES ($1, $2, $3)', m);
-    }
-    console.log('✅ Seeded 38 equipment items into Postgres');
-  }
 }
 
 const queries = {
@@ -104,6 +56,10 @@ const queries = {
   getAllMachines: async () => (await pool.query('SELECT * FROM machines ORDER BY name')).rows,
   getMachineById: async (id) => (await pool.query('SELECT * FROM machines WHERE id = $1', [id])).rows[0],
   addMachine: async (name, loc, dept) => (await pool.query('INSERT INTO machines (name, location, department) VALUES ($1, $2, $3) RETURNING *', [name, loc, dept])).rows[0],
+  deleteMachine: async (id) => {
+    await pool.query('DELETE FROM reports WHERE machine_id = $1', [id]);
+    await pool.query('DELETE FROM machines WHERE id = $1', [id]);
+  },
 
   // Maintenance Staff
   getAllStaff: async () => (await pool.query('SELECT * FROM maintenance_staff WHERE active = 1 ORDER BY name')).rows,
@@ -174,6 +130,10 @@ const queries = {
     `, [status, resolved_by, report_id]);
   },
 
+  deleteReport: async (id) => {
+    await pool.query('DELETE FROM reports WHERE id = $1', [id]);
+  },
+
   getStats: async () => {
     const res = await pool.query(`
       SELECT
@@ -193,6 +153,28 @@ const queries = {
       resolved_count: parseInt(row.resolved_count || 0),
       critical_open: parseInt(row.critical_open || 0)
     };
+  },
+
+  getMonthlyStats: async (year, month) => {
+    // Postgres: date_part or EXTRACT
+    const res = await pool.query(`
+        SELECT
+            m.name as machine_name,
+            COUNT(r.id) as total_reports,
+            SUM(CASE WHEN r.status = 'resolved' THEN 1 ELSE 0 END) as resolved_reports
+        FROM machines m
+        LEFT JOIN reports r ON m.id = r.machine_id
+            AND EXTRACT(YEAR FROM r.reported_at) = $1
+            AND EXTRACT(MONTH FROM r.reported_at) = $2
+        GROUP BY m.id, m.name
+        HAVING COUNT(r.id) > 0
+        ORDER BY total_reports DESC
+      `, [year, month]);
+    return res.rows.map(r => ({
+      machine_name: r.machine_name,
+      total_reports: parseInt(r.total_reports || 0),
+      resolved_reports: parseInt(r.resolved_reports || 0)
+    }));
   },
 
   // Push subscriptions
