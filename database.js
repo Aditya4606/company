@@ -1,7 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const db = new Database(path.join(__dirname, 'alerts.db'));
+// Use environment variable for database path if provided (e.g. Render persistent disk)
+const dataDir = process.env.RENDER_DISK_PATH || __dirname;
+const dbPath = path.join(dataDir, 'alerts.db');
+const db = new Database(dbPath);
 
 // Enable WAL mode for better concurrent read performance
 db.pragma('journal_mode = WAL');
@@ -25,10 +28,22 @@ db.exec(`
     photo_path TEXT,
     status TEXT CHECK(status IN ('open','in_progress','resolved')) DEFAULT 'open',
     reported_by TEXT DEFAULT 'Operator',
+    assigned_to INTEGER,
     resolved_by TEXT,
     reported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     resolved_at DATETIME,
-    FOREIGN KEY (machine_id) REFERENCES machines(id)
+    FOREIGN KEY (machine_id) REFERENCES machines(id),
+    FOREIGN KEY (assigned_to) REFERENCES maintenance_staff(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS maintenance_staff (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    email TEXT,
+    role TEXT DEFAULT 'Technician',
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -101,15 +116,24 @@ const queries = {
   getMachineById: db.prepare('SELECT * FROM machines WHERE id = ?'),
   addMachine: db.prepare('INSERT INTO machines (name, location, department) VALUES (?, ?, ?)'),
 
+  // Maintenance Staff
+  getAllStaff: db.prepare('SELECT * FROM maintenance_staff WHERE active = 1 ORDER BY name'),
+  getStaffById: db.prepare('SELECT * FROM maintenance_staff WHERE id = ?'),
+  addStaff: db.prepare('INSERT INTO maintenance_staff (name, phone, email, role) VALUES (?, ?, ?, ?)'),
+  updateStaff: db.prepare('UPDATE maintenance_staff SET name = ?, phone = ?, email = ?, role = ? WHERE id = ?'),
+  deactivateStaff: db.prepare('UPDATE maintenance_staff SET active = 0 WHERE id = ?'),
+
   // Reports
   createReport: db.prepare(`
     INSERT INTO reports (machine_id, error_message, description, priority, photo_path, reported_by)
     VALUES (?, ?, ?, ?, ?, ?)
   `),
   getAllReports: db.prepare(`
-    SELECT r.*, m.name as machine_name, m.location as machine_location
+    SELECT r.*, m.name as machine_name, m.location as machine_location,
+           s.name as assigned_to_name, s.phone as assigned_to_phone
     FROM reports r
     JOIN machines m ON r.machine_id = m.id
+    LEFT JOIN maintenance_staff s ON r.assigned_to = s.id
     ORDER BY
       CASE r.priority
         WHEN 'critical' THEN 1
@@ -120,9 +144,11 @@ const queries = {
       r.reported_at DESC
   `),
   getReportsByStatus: db.prepare(`
-    SELECT r.*, m.name as machine_name, m.location as machine_location
+    SELECT r.*, m.name as machine_name, m.location as machine_location,
+           s.name as assigned_to_name, s.phone as assigned_to_phone
     FROM reports r
     JOIN machines m ON r.machine_id = m.id
+    LEFT JOIN maintenance_staff s ON r.assigned_to = s.id
     WHERE r.status = ?
     ORDER BY
       CASE r.priority
@@ -134,10 +160,16 @@ const queries = {
       r.reported_at DESC
   `),
   getReportById: db.prepare(`
-    SELECT r.*, m.name as machine_name, m.location as machine_location
+    SELECT r.*, m.name as machine_name, m.location as machine_location,
+           s.name as assigned_to_name, s.phone as assigned_to_phone
     FROM reports r
     JOIN machines m ON r.machine_id = m.id
+    LEFT JOIN maintenance_staff s ON r.assigned_to = s.id
     WHERE r.id = ?
+  `),
+  assignReport: db.prepare(`
+    UPDATE reports SET assigned_to = ?, status = 'in_progress', resolved_by = ?
+    WHERE id = ?
   `),
   updateReportStatus: db.prepare(`
     UPDATE reports SET status = ?, resolved_by = ?,

@@ -3,68 +3,66 @@ document.addEventListener('DOMContentLoaded', () => {
     const emptyState = document.getElementById('emptyState');
     const connectionStatus = document.getElementById('connectionStatus');
     const connectionText = document.getElementById('connectionText');
-    const alertSound = document.getElementById('alertSound');
     const loginOverlay = document.getElementById('loginOverlay');
     const mainContent = document.getElementById('mainContent');
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
     const logoutBtn = document.getElementById('logoutBtn');
-    const notifBtn = document.getElementById('notifBtn');
+    const assignModal = document.getElementById('assignModal');
+    const assignForm = document.getElementById('assignForm');
+    const assignStaffSelect = document.getElementById('assignStaffSelect');
+    const cancelAssign = document.getElementById('cancelAssign');
+    const assignReportInfo = document.getElementById('assignReportInfo');
 
     let authToken = localStorage.getItem('maintenance_token');
     let allReports = [];
+    let staffList = [];
     let currentFilter = 'all';
     let isFirstLoad = true;
+    let assigningReportId = null;
 
-    // ─── Auth check ─────────────────────────────────────────────────────────
+    // Staff elements
+    const staffListEl = document.getElementById('staffList');
+    const staffEmpty = document.getElementById('staffEmpty');
+    const addStaffBtn = document.getElementById('addStaffBtn');
+    const addStaffModal = document.getElementById('addStaffModal');
+    const cancelAddStaff = document.getElementById('cancelAddStaff');
+    const addStaffForm = document.getElementById('addStaffForm');
+
+    // ─── Auth ───────────────────────────────────────────────────────────────
     checkAuth();
 
     async function checkAuth() {
         if (!authToken) return showLogin();
-
         try {
-            const res = await fetch('/api/auth/check', {
-                headers: { 'x-auth-token': authToken },
-            });
+            const res = await fetch('/api/auth/check', { headers: { 'x-auth-token': authToken } });
             const data = await res.json();
-            if (data.authenticated) {
-                showDashboard();
-            } else {
-                localStorage.removeItem('maintenance_token');
-                authToken = null;
-                showLogin();
-            }
-        } catch {
-            showLogin();
-        }
+            if (data.authenticated) showDashboard();
+            else { localStorage.removeItem('maintenance_token'); authToken = null; showLogin(); }
+        } catch { showLogin(); }
     }
 
-    function showLogin() {
-        loginOverlay.style.display = 'flex';
-        mainContent.style.display = 'none';
-    }
+    function showLogin() { loginOverlay.style.display = 'flex'; mainContent.style.display = 'none'; }
 
     function showDashboard() {
         loginOverlay.style.display = 'none';
         mainContent.style.display = 'block';
+        loadStaff();
         loadReports();
         loadStats();
         connectSSE();
-        updateNotifButton();
     }
 
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const pin = document.getElementById('pinInput').value;
         loginError.style.display = 'none';
-
         try {
             const res = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pin }),
             });
-
             if (res.ok) {
                 const data = await res.json();
                 authToken = data.token;
@@ -83,127 +81,139 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     logoutBtn.addEventListener('click', async () => {
-        try {
-            await fetch('/api/auth/logout', {
-                method: 'POST',
-                headers: { 'x-auth-token': authToken },
-            });
-        } catch { }
+        try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'x-auth-token': authToken } }); } catch { }
         localStorage.removeItem('maintenance_token');
         authToken = null;
         showLogin();
     });
 
-    // ─── Push Notifications ─────────────────────────────────────────────────
-    async function updateNotifButton() {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            notifBtn.textContent = '🔕 Not Supported';
-            notifBtn.disabled = true;
-            return;
-        }
+    function authHeaders(extra = {}) { return { 'x-auth-token': authToken, ...extra }; }
 
-        const permission = Notification.permission;
-        if (permission === 'granted') {
-            const reg = await navigator.serviceWorker.getRegistration();
-            const sub = reg ? await reg.pushManager.getSubscription() : null;
-            if (sub) {
-                notifBtn.textContent = '🔔 Notifications On';
-                notifBtn.classList.add('active-notif');
-            } else {
-                notifBtn.textContent = '🔔 Enable Notifications';
-                notifBtn.classList.remove('active-notif');
-            }
-        } else if (permission === 'denied') {
-            notifBtn.textContent = '🔕 Blocked';
-            notifBtn.disabled = true;
-        } else {
-            notifBtn.textContent = '🔔 Enable Notifications';
-        }
+    // ─── Staff ──────────────────────────────────────────────────────────────
+    async function loadStaff() {
+        try {
+            const res = await fetch('/api/staff', { headers: authHeaders() });
+            staffList = await res.json();
+            renderStaffList();
+        } catch { }
     }
 
-    notifBtn.addEventListener('click', async () => {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            showToast('Push notifications not supported on this browser', 'error');
+    function renderStaffList() {
+        if (!staffListEl || !staffEmpty) return; // safety check
+
+        if (staffList.length === 0) {
+            staffListEl.innerHTML = '';
+            staffEmpty.style.display = 'block';
             return;
         }
 
-        try {
-            // Check if already subscribed
-            const reg = await navigator.serviceWorker.getRegistration();
-            if (reg) {
-                const existingSub = await reg.pushManager.getSubscription();
-                if (existingSub) {
-                    // Unsubscribe
-                    await existingSub.unsubscribe();
-                    await fetch('/api/push/unsubscribe', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ endpoint: existingSub.endpoint }),
+        staffEmpty.style.display = 'none';
+        staffListEl.innerHTML = staffList.map(s => `
+        <div class="glass-card" style="display: flex; justify-content: space-between; align-items: center; padding: 16px;">
+          <div>
+            <div style="font-weight: 600; font-size: 1rem;">${escapeHtml(s.name)}</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+              ${s.role}${s.phone ? ` · 📞 ${s.phone}` : ''}${s.email ? ` · ✉️ ${s.email}` : ''}
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" data-remove-staff="${s.id}" title="Remove">🗑️</button>
+        </div>
+      `).join('');
+
+        // Attach remove handlers
+        staffListEl.querySelectorAll('[data-remove-staff]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const staffId = parseInt(btn.dataset.removeStaff);
+                if (!confirm(`Remove ${staffList.find(s => s.id === staffId)?.name}?`)) return;
+                try {
+                    await fetch(`/api/staff/${staffId}`, {
+                        method: 'DELETE',
+                        headers: authHeaders(),
                     });
-                    showToast('🔕 Notifications disabled', 'success');
-                    updateNotifButton();
-                    return;
-                }
-            }
-
-            // Request permission
-            const permission = await Notification.requestPermission();
-            if (permission !== 'granted') {
-                showToast('Notification permission denied', 'error');
-                updateNotifButton();
-                return;
-            }
-
-            // Register service worker
-            const registration = await navigator.serviceWorker.register('/sw.js');
-            await navigator.serviceWorker.ready;
-
-            // Get VAPID public key
-            const vapidRes = await fetch('/api/push/vapid-key');
-            const { publicKey } = await vapidRes.json();
-
-            // Subscribe to push
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(publicKey),
+                    showToast('Staff removed', 'success');
+                    loadStaff(); // Reload the whole list to keep assignment dropdown in sync too
+                } catch { showToast('Failed to remove', 'error'); }
             });
+        });
+    }
 
-            // Send subscription to server
-            const subJson = subscription.toJSON();
-            await fetch('/api/push/subscribe', {
+    if (addStaffBtn) addStaffBtn.addEventListener('click', () => addStaffModal.classList.add('visible'));
+    if (cancelAddStaff) cancelAddStaff.addEventListener('click', () => { addStaffModal.classList.remove('visible'); addStaffForm.reset(); });
+
+    if (addStaffForm) {
+        addStaffForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('staffName').value.trim();
+            const phone = document.getElementById('staffPhone').value.trim();
+            const email = document.getElementById('staffEmail').value.trim();
+            const role = document.getElementById('staffRole').value;
+            if (!name) { showToast('Name is required', 'error'); return; }
+
+            try {
+                const res = await fetch('/api/staff', {
+                    method: 'POST',
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ name, phone, email, role }),
+                });
+                if (res.ok) {
+                    showToast(`✅ ${name} added to team!`, 'success');
+                    addStaffModal.classList.remove('visible');
+                    addStaffForm.reset();
+                    loadStaff();
+                } else showToast('Failed to add', 'error');
+            } catch { showToast('Network error', 'error'); }
+        });
+    }
+
+    // ─── Assignment Modal ───────────────────────────────────────────────────
+    function openAssignModal(reportId) {
+        const report = allReports.find(r => r.id === reportId);
+        if (!report) return;
+
+        assigningReportId = reportId;
+        assignReportInfo.textContent = `#${report.id} — ${report.machine_name}: ${report.error_message}`;
+
+        // Fill dropdown
+        assignStaffSelect.innerHTML = '<option value="">— Select Staff —</option>';
+        staffList.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = `${s.name} (${s.role})`;
+            assignStaffSelect.appendChild(opt);
+        });
+
+        assignModal.classList.add('visible');
+    }
+
+    cancelAssign.addEventListener('click', () => {
+        assignModal.classList.remove('visible');
+        assigningReportId = null;
+    });
+
+    assignForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const staffId = assignStaffSelect.value;
+        if (!staffId || !assigningReportId) return;
+
+        try {
+            const res = await fetch(`/api/reports/${assigningReportId}/assign`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
-                body: JSON.stringify({
-                    endpoint: subJson.endpoint,
-                    keys: subJson.keys,
-                }),
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ staff_id: parseInt(staffId) }),
             });
-
-            showToast('🔔 Notifications enabled! You\'ll be alerted even when this page is closed.', 'success');
-            updateNotifButton();
-        } catch (err) {
-            console.error('Push subscription error:', err);
-            showToast('Failed to enable notifications', 'error');
+            if (res.ok) {
+                showToast(`✅ Report assigned!`, 'success');
+                assignModal.classList.remove('visible');
+                assigningReportId = null;
+            } else {
+                showToast('Failed to assign', 'error');
+            }
+        } catch {
+            showToast('Network error', 'error');
         }
     });
 
-    function urlBase64ToUint8Array(base64String) {
-        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) {
-            outputArray[i] = rawData.charCodeAt(i);
-        }
-        return outputArray;
-    }
-
-    // ─── Helper: auth headers ──────────────────────────────────────────────
-    function authHeaders(extra = {}) {
-        return { 'x-auth-token': authToken, ...extra };
-    }
-
-    // ─── SSE connection ─────────────────────────────────────────────────────
+    // ─── SSE ────────────────────────────────────────────────────────────────
     let eventSource;
 
     function connectSSE() {
@@ -221,15 +231,13 @@ document.addEventListener('DOMContentLoaded', () => {
             renderReports();
             loadStats();
             playAlertSound();
-            showToast(`🚨 New report: ${report.machine_name} — ${report.error_message}`, 'error');
+            showToast(`🚨 New: ${report.machine_name} — ${report.error_message}`, 'error');
         });
 
         eventSource.addEventListener('report_updated', (e) => {
             const updated = JSON.parse(e.data);
-            const index = allReports.findIndex(r => r.id === updated.id);
-            if (index !== -1) {
-                allReports[index] = updated;
-            }
+            const idx = allReports.findIndex(r => r.id === updated.id);
+            if (idx !== -1) allReports[idx] = updated;
             renderReports();
             loadStats();
         });
@@ -242,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // ─── Filter tabs ────────────────────────────────────────────────────────
+    // ─── Filters ────────────────────────────────────────────────────────────
     document.querySelectorAll('.filter-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
@@ -252,35 +260,30 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // ─── Load reports ───────────────────────────────────────────────────────
+    // ─── Load data ──────────────────────────────────────────────────────────
     async function loadReports() {
         try {
             const res = await fetch('/api/reports', { headers: authHeaders() });
             allReports = await res.json();
             isFirstLoad = false;
             renderReports();
-        } catch (err) {
-            showToast('Failed to load reports', 'error');
-        }
+        } catch { showToast('Failed to load reports', 'error'); }
     }
 
-    // ─── Load stats ─────────────────────────────────────────────────────────
     async function loadStats() {
         try {
             const res = await fetch('/api/stats', { headers: authHeaders() });
-            const stats = await res.json();
-            document.getElementById('statCritical').textContent = stats.critical_open || 0;
-            document.getElementById('statOpen').textContent = stats.open_count || 0;
-            document.getElementById('statInProgress').textContent = stats.in_progress_count || 0;
-            document.getElementById('statResolved').textContent = stats.resolved_count || 0;
-        } catch (err) { }
+            const s = await res.json();
+            document.getElementById('statCritical').textContent = s.critical_open || 0;
+            document.getElementById('statOpen').textContent = s.open_count || 0;
+            document.getElementById('statInProgress').textContent = s.in_progress_count || 0;
+            document.getElementById('statResolved').textContent = s.resolved_count || 0;
+        } catch { }
     }
 
-    // ─── Render reports ─────────────────────────────────────────────────────
+    // ─── Render ─────────────────────────────────────────────────────────────
     function renderReports() {
-        const filtered = currentFilter === 'all'
-            ? allReports
-            : allReports.filter(r => r.status === currentFilter);
+        const filtered = currentFilter === 'all' ? allReports : allReports.filter(r => r.status === currentFilter);
 
         if (filtered.length === 0) {
             reportsList.innerHTML = '';
@@ -291,10 +294,12 @@ document.addEventListener('DOMContentLoaded', () => {
         emptyState.style.display = 'none';
         reportsList.innerHTML = filtered.map((r, i) => createReportCard(r, i === 0 && !isFirstLoad)).join('');
 
-        reportsList.querySelectorAll('[data-action]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                updateReportStatus(btn.dataset.reportId, btn.dataset.action);
-            });
+        // Event listeners
+        reportsList.querySelectorAll('[data-assign]').forEach(btn => {
+            btn.addEventListener('click', () => openAssignModal(parseInt(btn.dataset.assign)));
+        });
+        reportsList.querySelectorAll('[data-resolve]').forEach(btn => {
+            btn.addEventListener('click', () => updateReportStatus(btn.dataset.resolve, 'resolved'));
         });
     }
 
@@ -308,11 +313,19 @@ document.addEventListener('DOMContentLoaded', () => {
             photo = `<div class="report-photo"><img src="${report.photo_path}" alt="Error photo" loading="lazy"></div>`;
         }
 
+        let assignedInfo = '';
+        if (report.assigned_to_name) {
+            assignedInfo = `<div style="font-size:0.8rem; color:var(--accent-blue); margin-top:8px;">
+        👷 Assigned to: <strong>${escapeHtml(report.assigned_to_name)}</strong>${report.assigned_to_phone ? ` (📞 ${report.assigned_to_phone})` : ''}
+      </div>`;
+        }
+
         let actions = '';
         if (report.status === 'open') {
-            actions = `<button class="btn btn-warning btn-sm" data-action="in_progress" data-report-id="${report.id}">🔧 Take Ownership</button>`;
+            actions = `<button class="btn btn-warning btn-sm" data-assign="${report.id}">👷 Assign</button>`;
         } else if (report.status === 'in_progress') {
-            actions = `<button class="btn btn-success btn-sm" data-action="resolved" data-report-id="${report.id}">✅ Mark Resolved</button>`;
+            actions = `<button class="btn btn-warning btn-sm" data-assign="${report.id}" style="margin-right:4px;">👷 Reassign</button>
+                 <button class="btn btn-success btn-sm" data-resolve="${report.id}">✅ Resolved</button>`;
         }
 
         let resolvedInfo = '';
@@ -335,6 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="report-error">⚠️ ${escapeHtml(report.error_message)}</div>
         ${report.description ? `<div class="report-description">${escapeHtml(report.description)}</div>` : ''}
         ${photo}
+        ${assignedInfo}
         <div class="report-footer">
           <div>${priorityBadge} ${statusBadge}</div>
           <div class="report-actions">${actions}</div>
@@ -345,77 +359,44 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     }
 
-    // ─── Update report status ──────────────────────────────────────────────
+    // ─── Update report ─────────────────────────────────────────────────────
     async function updateReportStatus(reportId, newStatus) {
-        const resolverName = newStatus === 'in_progress' ?
-            prompt('Enter your name (maintenance):') : null;
-
         try {
             const res = await fetch(`/api/reports/${reportId}`, {
                 method: 'PATCH',
                 headers: authHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({
-                    status: newStatus,
-                    resolved_by: resolverName || 'Maintenance',
-                }),
+                body: JSON.stringify({ status: newStatus, resolved_by: 'Maintenance' }),
             });
-
-            if (res.ok) {
-                showToast(`Report #${reportId} updated to ${formatStatus(newStatus)}`, 'success');
-            } else {
-                showToast('Failed to update status', 'error');
-            }
-        } catch (err) {
-            showToast('Network error', 'error');
-        }
+            if (res.ok) showToast(`Report #${reportId} resolved ✅`, 'success');
+            else showToast('Failed to update', 'error');
+        } catch { showToast('Network error', 'error'); }
     }
 
-    // ─── Play alert sound ──────────────────────────────────────────────────
+    // ─── Audio ──────────────────────────────────────────────────────────────
     function playAlertSound() {
         try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.frequency.value = 880;
-            osc.type = 'sine';
-            gain.gain.value = 0.3;
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.frequency.value = 880; osc.type = 'sine'; gain.gain.value = 0.3;
             osc.start();
             gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
             osc.stop(ctx.currentTime + 0.5);
-
-            setTimeout(() => {
-                const osc2 = ctx.createOscillator();
-                const gain2 = ctx.createGain();
-                osc2.connect(gain2);
-                gain2.connect(ctx.destination);
-                osc2.frequency.value = 1100;
-                osc2.type = 'sine';
-                gain2.gain.value = 0.3;
-                osc2.start();
-                gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-                osc2.stop(ctx.currentTime + 0.5);
-            }, 200);
-        } catch (e) {
-            alertSound.play().catch(() => { });
-        }
+        } catch { }
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────
     function formatTime(dateStr) {
         const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
-        const now = new Date();
-        const diff = (now - d) / 1000;
+        const diff = (new Date() - d) / 1000;
         if (diff < 60) return 'Just now';
         if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
         if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
         return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     }
 
-    function formatStatus(s) {
-        return s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
-    }
+    function formatStatus(s) { return s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 
     function escapeHtml(str) {
         if (!str) return '';

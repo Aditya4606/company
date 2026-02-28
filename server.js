@@ -5,29 +5,30 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
-const webPush = require('web-push');
+const os = require('os');
 const { queries } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+function getLocalIP() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+        }
+    }
+    return 'localhost';
+}
 
 // ─── Auth Config ─────────────────────────────────────────────────────────────
 const MAINTENANCE_PIN = process.env.MAINTENANCE_PIN || '1234';
 const activeSessions = new Map();
 const SESSION_TTL = 24 * 60 * 60 * 1000;
 
-// ─── Web Push Config ─────────────────────────────────────────────────────────
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BBOFSQQsboSf8W1PqqIDVbBO-gqtUd9lHxcfG2KxcnYZY6TMWnBxVkJ-RKcR329ce_Wurjp0Fah7l4YLG80z-VU';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '6d3eeapxEHN2aTF3EMvjvkPLtQdZA9foeli-jf_u_V0';
-
-webPush.setVapidDetails(
-    'mailto:maintenance@company.com',
-    VAPID_PUBLIC_KEY,
-    VAPID_PRIVATE_KEY
-);
-
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, 'uploads');
+// Ensure uploads directory exists (use persistent disk path if provided)
+const dataDir = process.env.RENDER_DISK_PATH || __dirname;
+const uploadsDir = path.join(dataDir, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -103,71 +104,7 @@ app.post('/api/auth/logout', (req, res) => {
     res.json({ success: true });
 });
 
-// ─── PUSH NOTIFICATION API ──────────────────────────────────────────────────
-app.get('/api/push/vapid-key', (req, res) => {
-    res.json({ publicKey: VAPID_PUBLIC_KEY });
-});
 
-app.post('/api/push/subscribe', requireAuth, (req, res) => {
-    const { endpoint, keys } = req.body;
-    if (!endpoint || !keys || !keys.p256dh || !keys.auth) {
-        return res.status(400).json({ error: 'Invalid subscription data' });
-    }
-
-    try {
-        queries.saveSubscription.run(endpoint, keys.p256dh, keys.auth);
-        console.log(`🔔 Push subscription saved (${queries.getAllSubscriptions.all().length} total)`);
-        res.json({ success: true });
-    } catch (err) {
-        console.error('Push subscribe error:', err);
-        res.status(500).json({ error: 'Failed to save subscription' });
-    }
-});
-
-app.post('/api/push/unsubscribe', (req, res) => {
-    const { endpoint } = req.body;
-    if (endpoint) {
-        queries.deleteSubscription.run(endpoint);
-    }
-    res.json({ success: true });
-});
-
-async function sendPushNotifications(report) {
-    const subscriptions = queries.getAllSubscriptions.all();
-    if (subscriptions.length === 0) return;
-
-    const payload = JSON.stringify({
-        title: `🚨 ${report.priority.toUpperCase()}: ${report.machine_name}`,
-        body: `Error: ${report.error_message}`,
-        data: {
-            reportId: report.id,
-            url: `/dashboard.html`,
-        },
-        tag: `report-${report.id}`,
-        requireInteraction: report.priority === 'critical',
-    });
-
-    const results = await Promise.allSettled(
-        subscriptions.map(async (sub) => {
-            const pushSub = {
-                endpoint: sub.endpoint,
-                keys: { p256dh: sub.keys_p256dh, auth: sub.keys_auth },
-            };
-            try {
-                await webPush.sendNotification(pushSub, payload);
-            } catch (err) {
-                if (err.statusCode === 410 || err.statusCode === 404) {
-                    // Subscription expired — remove it
-                    queries.deleteSubscription.run(sub.endpoint);
-                    console.log('🔔 Removed expired push subscription');
-                }
-            }
-        })
-    );
-
-    const sent = results.filter(r => r.status === 'fulfilled').length;
-    console.log(`🔔 Push notifications sent to ${sent}/${subscriptions.length} subscribers`);
-}
 
 // ─── SSE (Server-Sent Events) ───────────────────────────────────────────────
 const sseClients = new Set();
@@ -236,8 +173,12 @@ app.get('/api/machines/:id/qrcode', requireAuth, async (req, res) => {
     const machine = queries.getMachineById.get(req.params.id);
     if (!machine) return res.status(404).json({ error: 'Machine not found' });
 
-    const host = req.get('host');
-    const protocol = req.protocol;
+    let host = process.env.RENDER_EXTERNAL_URL ? process.env.RENDER_EXTERNAL_URL.replace(/^https?:\/\//, '') : req.get('host');
+    if (host.startsWith('localhost') || host.startsWith('127.0.0.1')) {
+        const port = host.split(':')[1] || PORT;
+        host = `${getLocalIP()}:${port}`;
+    }
+    const protocol = process.env.RENDER_EXTERNAL_URL ? 'https' : req.protocol;
     const reportUrl = `${protocol}://${host}/report.html?machine_id=${machine.id}`;
 
     try {
@@ -252,6 +193,29 @@ app.get('/api/machines/:id/qrcode', requireAuth, async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: 'Failed to generate QR code' });
     }
+});
+
+// ─── STAFF API ───────────────────────────────────────────────────────────────
+app.get('/api/staff', requireAuth, (req, res) => {
+    const staff = queries.getAllStaff.all();
+    res.json(staff);
+});
+
+app.post('/api/staff', requireAuth, (req, res) => {
+    const { name, phone, email, role } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const result = queries.addStaff.run(name, phone || null, email || null, role || 'Technician');
+    const member = queries.getStaffById.get(result.lastInsertRowid);
+    console.log(`👷 Staff added: ${name}`);
+    res.status(201).json(member);
+});
+
+app.delete('/api/staff/:id', requireAuth, (req, res) => {
+    const existing = queries.getStaffById.get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Staff not found' });
+    queries.deactivateStaff.run(req.params.id);
+    console.log(`👷 Staff deactivated: ${existing.name}`);
+    res.json({ success: true });
 });
 
 // ─── REPORTS API ─────────────────────────────────────────────────────────────
@@ -278,12 +242,8 @@ app.post('/api/reports', upload.single('photo'), async (req, res) => {
 
     const report = queries.getReportById.get(result.lastInsertRowid);
 
-    // Broadcast to live dashboard via SSE
     broadcastEvent('new_report', report);
     console.log(`🚨 New report #${report.id} for ${report.machine_name}: ${error_message}`);
-
-    // Send push notifications to all subscribed maintenance staff
-    sendPushNotifications(report).catch(err => console.error('Push error:', err));
 
     res.status(201).json(report);
 });
@@ -303,6 +263,26 @@ app.get('/api/reports/:id', (req, res) => {
     const report = queries.getReportById.get(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
     res.json(report);
+});
+
+// Assign a report to a staff member
+app.post('/api/reports/:id/assign', requireAuth, (req, res) => {
+    const { staff_id } = req.body;
+    if (!staff_id) return res.status(400).json({ error: 'staff_id is required' });
+
+    const existing = queries.getReportById.get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Report not found' });
+
+    const staff = queries.getStaffById.get(staff_id);
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+
+    queries.assignReport.run(staff_id, staff.name, req.params.id);
+    const updated = queries.getReportById.get(req.params.id);
+
+    broadcastEvent('report_updated', updated);
+    console.log(`📋 Report #${updated.id} assigned to ${staff.name}`);
+
+    res.json(updated);
 });
 
 app.patch('/api/reports/:id', requireAuth, (req, res) => {
@@ -331,10 +311,23 @@ app.get('/api/stats', requireAuth, (req, res) => {
 });
 
 // ─── START SERVER ────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-    console.log(`\n🏭 Machine Alert System running at http://localhost:${PORT}`);
-    console.log(`   📱 Operator Report:      http://localhost:${PORT}/report.html`);
-    console.log(`   📊 Maintenance Dashboard: http://localhost:${PORT}/dashboard.html`);
-    console.log(`   🏷️  QR Code Generator:    http://localhost:${PORT}/qrcodes.html`);
-    console.log(`   🔐 Default PIN:          ${MAINTENANCE_PIN}\n`);
+app.listen(PORT, '0.0.0.0', () => {
+    const ip = getLocalIP();
+    const externalUrl = process.env.RENDER_EXTERNAL_URL || `http://${ip}:${PORT}`;
+
+    console.log(`\n🏭 Machine Alert System is LIVE!\n`);
+    if (process.env.RENDER_EXTERNAL_URL) {
+        console.log(`   ☁️  Cloud URL:         ${externalUrl}`);
+        console.log(`   📱 Operator Report:   ${externalUrl}/report.html`);
+        console.log(`   📊 Dashboard:         ${externalUrl}/dashboard.html`);
+        console.log(`   🏷️  QR Codes:          ${externalUrl}/qrcodes.html`);
+    } else {
+        console.log(`   🌐 Network URL:       http://${ip}:${PORT}`);
+        console.log(`   🏠 Local URL:         http://localhost:${PORT}`);
+        console.log(`   📱 Operator Report:   http://${ip}:${PORT}/report.html`);
+        console.log(`   📊 Dashboard:         http://${ip}:${PORT}/dashboard.html`);
+        console.log(`   🏷️  QR Codes:          http://${ip}:${PORT}/qrcodes.html`);
+    }
+    console.log(`   🔐 PIN:               ${MAINTENANCE_PIN}`);
+    console.log(`\n   ☝️  Share the ${process.env.RENDER_EXTERNAL_URL ? 'Cloud' : 'Network'} URL with your team!\n`);
 });

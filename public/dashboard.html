@@ -33,9 +33,28 @@
         </div>
     </div>
 
-    <!-- MAIN DASHBOARD (hidden until login) -->
+    <!-- ASSIGN MODAL -->
+    <div class="success-overlay" id="assignModal">
+        <div class="success-box" style="text-align: left;">
+            <h2 style="margin-bottom: 8px;">👷 Assign to Staff</h2>
+            <p id="assignReportInfo" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;"></p>
+            <form id="assignForm">
+                <div class="form-group">
+                    <label class="form-label" for="assignStaffSelect">Select Maintenance Staff</label>
+                    <select class="form-input" id="assignStaffSelect" required>
+                        <option value="">— Select Staff —</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button type="submit" class="btn btn-primary" style="flex:1;">Assign</button>
+                    <button type="button" class="btn btn-ghost" id="cancelAssign" style="flex:1;">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
     <div id="mainContent" style="display: none;">
-        <!-- Connection Status Indicator -->
         <div class="connection-status disconnected" id="connectionStatus">
             <span class="dot"></span>
             <span id="connectionText">Connecting…</span>
@@ -44,11 +63,9 @@
         <div class="container">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <a href="/" class="nav-back">← Back</a>
-                <div style="display: flex; gap: 8px;">
-                    <button class="btn btn-ghost btn-sm" id="notifBtn">🔔 Enable Notifications</button>
-                    <button class="btn btn-ghost btn-sm" id="logoutBtn">🔒 Logout</button>
-                </div>
+                <button class="btn btn-ghost btn-sm" id="logoutBtn">🔒 Logout</button>
             </div>
+
             <header class="page-header">
                 <span class="icon">🔧</span>
                 <h1>Maintenance Dashboard</h1>
@@ -56,7 +73,7 @@
             </header>
 
             <!-- Stats -->
-            <div class="stats-bar" id="statsBar">
+            <div class="stats-bar">
                 <div class="glass-card stat-card critical">
                     <div class="stat-value" id="statCritical">0</div>
                     <div class="stat-label">Critical</div>
@@ -77,32 +94,81 @@
 
             <!-- Filter Tabs -->
             <div class="filter-tabs no-print">
-                <button class="filter-tab active" data-filter="all" id="filterAll">All</button>
-                <button class="filter-tab" data-filter="open" id="filterOpen">🔴 Open</button>
-                <button class="filter-tab" data-filter="in_progress" id="filterInProgress">🟡 In Progress</button>
-                <button class="filter-tab" data-filter="resolved" id="filterResolved">🟢 Resolved</button>
+                <button class="filter-tab active" data-filter="all">All</button>
+                <button class="filter-tab" data-filter="open">🔴 Open</button>
+                <button class="filter-tab" data-filter="in_progress">🟡 In Progress</button>
+                <button class="filter-tab" data-filter="resolved">🟢 Resolved</button>
             </div>
 
-            <!-- Reports List -->
+            <!-- Reports -->
             <div id="reportsList"></div>
-
-            <!-- Empty State -->
             <div class="empty-state" id="emptyState" style="display: none;">
                 <div class="empty-icon">📋</div>
                 <h3>No reports yet</h3>
                 <p>Reports will appear here in real-time as operators submit them</p>
             </div>
+            <!-- Staff Management Section -->
+            <div class="no-print" style="margin-top: 40px;">
+                <header class="page-header">
+                    <span class="icon">👷</span>
+                    <h1>Maintenance Staff</h1>
+                    <p>Manage people who can be assigned to resolve issues</p>
+                </header>
+
+                <div style="text-align:center; margin-bottom: 16px;">
+                    <button class="btn btn-primary" id="addStaffBtn"
+                        style="width: 100%; border-radius: 8px; font-weight: 500;">➕ Add Staff Member</button>
+                </div>
+
+                <!-- Add Staff Modal -->
+                <div class="success-overlay" id="addStaffModal">
+                    <div class="success-box" style="text-align: left;">
+                        <h2 style="margin-bottom: 16px;">Add Staff Member</h2>
+                        <form id="addStaffForm">
+                            <div class="form-group">
+                                <label class="form-label" for="staffName">Name *</label>
+                                <input type="text" class="form-input" id="staffName" placeholder="e.g. Rajesh Kumar"
+                                    required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="staffPhone">Phone</label>
+                                <input type="text" class="form-input" id="staffPhone" placeholder="e.g. 9876543210">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="staffEmail">Email</label>
+                                <input type="email" class="form-input" id="staffEmail"
+                                    placeholder="e.g. rajesh@company.com">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="staffRole">Role</label>
+                                <select class="form-input" id="staffRole">
+                                    <option value="Technician">Technician</option>
+                                    <option value="Senior Technician">Senior Technician</option>
+                                    <option value="Engineer">Engineer</option>
+                                    <option value="Supervisor">Supervisor</option>
+                                    <option value="Manager">Manager</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="submit" class="btn btn-primary" style="flex:1;">Add</button>
+                                <button type="button" class="btn btn-ghost" id="cancelAddStaff"
+                                    style="flex:1;">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="staffList" style="display: grid; gap: 12px; margin-bottom: 40px;"></div>
+                <div class="empty-state" id="staffEmpty" style="display: none; margin-bottom: 40px;">
+                    <div class="empty-icon">👷</div>
+                    <h3>No staff yet</h3>
+                    <p>Add maintenance team members so they can be assigned to issues</p>
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="toast" id="toast"></div>
-
-    <!-- Alert Sound -->
-    <audio id="alertSound" preload="auto">
-        <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA="
-            type="audio/wav">
-    </audio>
-
     <script src="/js/dashboard.js"></script>
 </body>
 

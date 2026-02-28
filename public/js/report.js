@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 machineLocation.textContent = `${machine.location} · ${machine.department}`;
                 machineInfoBar.style.display = 'flex';
                 machineSelectGroup.style.display = 'none';
+                machineSelect.removeAttribute('required');
             } else {
                 showToast('Machine not found — please select manually', 'error');
                 await loadMachineList();

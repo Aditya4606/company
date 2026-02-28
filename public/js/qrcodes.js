@@ -12,33 +12,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let authToken = localStorage.getItem('maintenance_token');
 
-    // ─── Auth check ─────────────────────────────────────────────────────────
+    // ─── Auth ───────────────────────────────────────────────────────────────
     checkAuth();
 
     async function checkAuth() {
         if (!authToken) return showLogin();
-
         try {
-            const res = await fetch('/api/auth/check', {
-                headers: { 'x-auth-token': authToken },
-            });
+            const res = await fetch('/api/auth/check', { headers: { 'x-auth-token': authToken } });
             const data = await res.json();
-            if (data.authenticated) {
-                showMain();
-            } else {
-                localStorage.removeItem('maintenance_token');
-                authToken = null;
-                showLogin();
-            }
-        } catch {
-            showLogin();
-        }
+            if (data.authenticated) showMain();
+            else { localStorage.removeItem('maintenance_token'); authToken = null; showLogin(); }
+        } catch { showLogin(); }
     }
 
-    function showLogin() {
-        loginOverlay.style.display = 'flex';
-        mainContent.style.display = 'none';
-    }
+    function showLogin() { loginOverlay.style.display = 'flex'; mainContent.style.display = 'none'; }
 
     function showMain() {
         loginOverlay.style.display = 'none';
@@ -50,126 +37,83 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const pin = document.getElementById('pinInput').value;
         loginError.style.display = 'none';
-
         try {
             const res = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pin }),
             });
-
             if (res.ok) {
                 const data = await res.json();
                 authToken = data.token;
                 localStorage.setItem('maintenance_token', authToken);
                 showMain();
             } else {
-                loginError.textContent = '❌ Invalid PIN. Please try again.';
+                loginError.textContent = '❌ Invalid PIN.';
                 loginError.style.display = 'block';
                 document.getElementById('pinInput').value = '';
                 document.getElementById('pinInput').focus();
             }
         } catch {
-            loginError.textContent = '❌ Connection error. Try again.';
+            loginError.textContent = '❌ Connection error.';
             loginError.style.display = 'block';
         }
     });
 
     logoutBtn.addEventListener('click', async () => {
-        try {
-            await fetch('/api/auth/logout', {
-                method: 'POST',
-                headers: { 'x-auth-token': authToken },
-            });
-        } catch { }
+        try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'x-auth-token': authToken } }); } catch { }
         localStorage.removeItem('maintenance_token');
         authToken = null;
         showLogin();
     });
 
-    // ─── Load machines and their QR codes ───────────────────────────────────
+    // ─── Load machines and QR codes ─────────────────────────────────────────
     async function loadMachines() {
         try {
-            const res = await fetch('/api/machines', {
-                headers: { 'x-auth-token': authToken },
-            });
+            const res = await fetch('/api/machines', { headers: { 'x-auth-token': authToken } });
             const machines = await res.json();
 
             if (machines.length === 0) {
-                qrGrid.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-icon">🏭</div>
-            <h3>No machines yet</h3>
-            <p>Add your first machine to generate a QR code</p>
-          </div>
-        `;
+                qrGrid.innerHTML = '<div class="empty-state"><div class="empty-icon">🏭</div><h3>No machines yet</h3></div>';
                 return;
             }
 
-            // Fetch QR codes for all machines in parallel
             const qrPromises = machines.map(async (machine) => {
                 try {
-                    const qrRes = await fetch(`/api/machines/${machine.id}/qrcode`, {
-                        headers: { 'x-auth-token': authToken },
-                    });
+                    const qrRes = await fetch(`/api/machines/${machine.id}/qrcode`, { headers: { 'x-auth-token': authToken } });
                     const qrData = await qrRes.json();
                     return { machine, qrData };
-                } catch (err) {
-                    return { machine, qrData: null };
-                }
+                } catch { return { machine, qrData: null }; }
             });
 
             const results = await Promise.all(qrPromises);
 
             qrGrid.innerHTML = results.map(({ machine, qrData }) => {
-                const qrSvg = qrData && qrData.qr_svg
-                    ? qrData.qr_svg
-                    : '<div style="padding:40px; color:var(--text-muted);">QR Error</div>';
-
+                const qrSvg = qrData?.qr_svg || '<div style="padding:40px; color:var(--text-muted);">QR Error</div>';
                 return `
           <div class="glass-card qr-card">
             <div class="qr-image">${qrSvg}</div>
             <div class="machine-name">${escapeHtml(machine.name)}</div>
             <div class="machine-loc">📍 ${escapeHtml(machine.location)} · ${escapeHtml(machine.department)}</div>
-            <div style="margin-top: 8px;">
-              <span style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">ID: ${machine.id}</span>
-            </div>
+            <div style="margin-top: 8px;"><span style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">ID: ${machine.id}</span></div>
           </div>
         `;
             }).join('');
-
-        } catch (err) {
-            qrGrid.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">❌</div>
-          <h3>Failed to load</h3>
-          <p>Could not connect to the server</p>
-        </div>
-      `;
+        } catch {
+            qrGrid.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><h3>Failed to load</h3></div>';
         }
     }
 
     // ─── Add Machine Modal ──────────────────────────────────────────────────
-    addMachineBtn.addEventListener('click', () => {
-        addMachineModal.classList.add('visible');
-    });
-
-    cancelAddMachine.addEventListener('click', () => {
-        addMachineModal.classList.remove('visible');
-        addMachineForm.reset();
-    });
+    addMachineBtn.addEventListener('click', () => addMachineModal.classList.add('visible'));
+    cancelAddMachine.addEventListener('click', () => { addMachineModal.classList.remove('visible'); addMachineForm.reset(); });
 
     addMachineForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-
         const name = document.getElementById('newMachineName').value.trim();
         const location = document.getElementById('newMachineLocation').value.trim();
         const department = document.getElementById('newMachineDept').value.trim() || 'General';
-
-        if (!name || !location) {
-            showToast('Name and location are required', 'error');
-            return;
-        }
+        if (!name || !location) { showToast('Name and location required', 'error'); return; }
 
         try {
             const res = await fetch('/api/machines', {
@@ -177,18 +121,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
                 body: JSON.stringify({ name, location, department }),
             });
-
             if (res.ok) {
-                showToast(`✅ ${name} added successfully!`, 'success');
+                showToast(`✅ ${name} added!`, 'success');
                 addMachineModal.classList.remove('visible');
                 addMachineForm.reset();
                 loadMachines();
-            } else {
-                showToast('Failed to add machine', 'error');
-            }
-        } catch (err) {
-            showToast('Network error', 'error');
-        }
+            } else showToast('Failed to add', 'error');
+        } catch { showToast('Network error', 'error'); }
     });
 
     // ─── Helpers ────────────────────────────────────────────────────────────
