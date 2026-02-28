@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadReports();
         loadStats();
         connectSSE();
+        initPushNotifications();
     }
 
     loginForm.addEventListener('submit', async (e) => {
@@ -248,6 +249,57 @@ document.addEventListener('DOMContentLoaded', () => {
             eventSource.close();
             setTimeout(connectSSE, 3000);
         };
+    }
+
+    // ─── Web Push API ────────────────────────────────────────────────────────
+    async function initPushNotifications() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+        try {
+            const registration = await navigator.serviceWorker.register('/sw.js');
+
+            // Wait for service worker to be ready
+            await navigator.serviceWorker.ready;
+
+            // Check if already subscribed
+            let subscription = await registration.pushManager.getSubscription();
+
+            if (!subscription) {
+                // Not subscribed, get the public key from our server
+                const res = await fetch('/api/vapidPublicKey', { headers: authHeaders() });
+                const { publicKey } = await res.json();
+
+                const convertedVapidKey = urlBase64ToUint8Array(publicKey);
+
+                // Subscribe to push manager (this triggers the browser prompt)
+                subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: convertedVapidKey
+                });
+
+                // Send the new subscription to our backend to save it
+                await fetch('/api/subscribe', {
+                    method: 'POST',
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify(subscription)
+                });
+                console.log('Push notifications subscribed and registered with server.');
+            }
+        } catch (error) {
+            console.error('Push notification registration failed:', error);
+        }
+    }
+
+    // Helper function for VAPID key conversion
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
     }
 
     // ─── Filters ────────────────────────────────────────────────────────────

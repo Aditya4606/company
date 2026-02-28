@@ -7,6 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
 const os = require('os');
+const webpush = require('web-push');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const { pool, initDB, queries } = require('./database');
@@ -53,6 +54,13 @@ const upload = multer({
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Configure Web Push VAPID keys
+webpush.setVapidDetails(
+    'mailto:test@example.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+);
 
 // ─── AUTH API ────────────────────────────────────────────────────────────────
 function generateToken() {
@@ -126,6 +134,62 @@ function broadcastEvent(eventName, data) {
     const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const client of sseClients) {
         client.write(payload);
+    }
+}
+
+// ─── WEB PUSH API ────────────────────────────────────────────────────────────
+
+app.get('/api/vapidPublicKey', (req, res) => {
+    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/subscribe', async (req, res) => {
+    try {
+        const { endpoint, keys } = req.body;
+        if (!endpoint || !keys) {
+            return res.status(400).json({ error: 'Invalid subscription object' });
+        }
+        await queries.saveSubscription(endpoint, keys.p256dh, keys.auth);
+        res.status(201).json({ success: true });
+    } catch (e) {
+        console.error('Failed to save subscription:', e);
+        res.status(500).json({ error: 'Failed to subscribe' });
+    }
+});
+
+app.post('/api/unsubscribe', async (req, res) => {
+    try {
+        const { endpoint } = req.body;
+        if (!endpoint) return res.status(400).json({ error: 'Endpoint required' });
+        await queries.deleteSubscription(endpoint);
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Failed to delete subscription:', e);
+        res.status(500).json({ error: 'Failed to unsubscribe' });
+    }
+});
+
+// Helper to broadcast Web Push natively
+async function broadcastPushNotification(payload) {
+    try {
+        const subs = await queries.getAllSubscriptions();
+        for (const sub of subs) {
+            const pushConfig = {
+                endpoint: sub.endpoint,
+                keys: { p256dh: sub.keys_p256dh, auth: sub.keys_auth }
+            };
+            try {
+                await webpush.sendNotification(pushConfig, JSON.stringify(payload));
+            } catch (err) {
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                    await queries.deleteSubscription(sub.endpoint);
+                } else {
+                    console.error('Push error endpoint:', sub.endpoint, err);
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Error broadcasting push notification:', e);
     }
 }
 
@@ -258,6 +322,15 @@ app.post('/api/reports', upload.single('photo'), async (req, res) => {
         const report = await queries.getReportById(reportInsert.id);
 
         broadcastEvent('new_report', report);
+
+        // Also fire off native push notifications to all subscribed devices
+        broadcastPushNotification({
+            title: `🚨 Machine Alert: ${report.machine_name}`,
+            body: report.error_message,
+            url: '/dashboard.html',
+            icon: '/icons/icon-192x192.png'
+        });
+
         console.log(`🚨 New report #${report.id} for ${report.machine_name}: ${error_message}`);
 
         res.status(201).json(report);
